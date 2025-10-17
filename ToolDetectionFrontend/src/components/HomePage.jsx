@@ -34,10 +34,15 @@ const HomePage = () => {
 
     return (
         <div className="container">
-            <div className="card">
+            <div className="page-header">
+                <h1>Tool Detection & Search</h1>
+                <p>Take a photo or upload an image of a work tool to automatically detect and tag it with GPS location</p>
+            </div>
+
+            <div className="main-card">
                 <div className="card-header">
-                    <h1 className="card-title">🔧 Tool Detection & Search</h1>
-                    <p className="card-subtitle">Take a photo or upload an image of a work tool to automatically detect and tag it with GPS location</p>
+                    <h2>Get Started</h2>
+                    <p>Set your location and capture tool images</p>
                 </div>
 
                 {/* Location Section */}
@@ -121,20 +126,18 @@ const HomePage = () => {
 
                 {/* Capture Section */}
                 {hasValidLocation && (
-                    <div className="form-group">
-                        <label className="form-label">📸 Capture Tool Image</label>
-                        <div className="card">
-                            <CameraCapture
-                                latitude={currentCoords.latitude}
-                                longitude={currentCoords.longitude}
-                            />
-                        </div>
+                    <div className="capture-section">
+                        <label className="form-label">Capture Tool Image</label>
+                        <CameraCapture
+                            latitude={currentCoords.latitude}
+                            longitude={currentCoords.longitude}
+                        />
                     </div>
                 )}
 
                 {!hasValidLocation && !locationLoading && (
                     <div className="alert alert-warning">
-                        <strong>⚠️ Location Required:</strong> Please provide a valid location to continue.
+                        <strong>Location Required:</strong> Please provide a valid location to continue.
                     </div>
                 )}
             </div>

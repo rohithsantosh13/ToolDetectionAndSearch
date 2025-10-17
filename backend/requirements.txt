@@ -1,24 +1,28 @@
-# FastAPI and server
-fastapi==0.104.1
-uvicorn[standard]==0.24.0
-python-multipart==0.0.6
-
-# ML and AI models
-ultralytics>=8.0.0
-transformers>=4.30.0
-torch>=2.0.0
-torchvision>=0.15.0
-Pillow>=10.0.0
-opencv-python>=4.6.0
+# Core FastAPI and web framework
+fastapi>=0.104.1
+uvicorn>=0.24.0
+python-multipart>=0.0.6
+pydantic>=2.12.2
 
 # Database
-sqlalchemy==2.0.23
-psycopg2-binary==2.9.9
-geoalchemy2==0.14.2
-alembic==1.12.1
+SQLAlchemy>=2.0.23
+psycopg2-binary>=2.9.9
+GeoAlchemy2>=0.14.2
+alembic>=1.12.1
+
+# Google Cloud AI (Gemini)
+google-genai>=1.44.0
+google-auth>=2.41.1
+
+# Image processing
+pillow>=11.3.0
+
+# HTTP client
+httpx>=0.28.1
+requests>=2.32.5
+
+# Environment and configuration
+python-dotenv>=1.0.0
 
 # Utilities
-python-dotenv==1.0.0
-pydantic==2.5.0
-python-jose[cryptography]==3.3.0
-passlib[bcrypt]==1.7.4
+typing_extensions>=4.15.0

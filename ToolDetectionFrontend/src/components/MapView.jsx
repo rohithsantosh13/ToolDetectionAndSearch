@@ -2,6 +2,7 @@ import React, { useEffect, useRef } from 'react';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { getImageUrl } from '../services/api';
+import { getLocationNameForCoords } from '../services/locationService';
 
 // Fix for default markers in Leaflet
 import icon from 'leaflet/dist/images/marker-icon.png';
@@ -18,7 +19,7 @@ let DefaultIcon = L.icon({
 
 L.Marker.prototype.options.icon = DefaultIcon;
 
-const MapView = ({ images, userLocation, radius }) => {
+const MapView = ({ images, userLocation, userLocationName, radius }) => {
   const mapRef = useRef(null);
   const mapInstance = useRef(null);
   const markersRef = useRef([]);
@@ -30,7 +31,11 @@ const MapView = ({ images, userLocation, radius }) => {
     const defaultCenter = userLocation ? [userLocation.latitude, userLocation.longitude] : [40.7128, -74.0060];
     const defaultZoom = userLocation ? 12 : 10;
 
-    mapInstance.current = L.map(mapRef.current).setView(defaultCenter, defaultZoom);
+    mapInstance.current = L.map(mapRef.current, {
+      preferCanvas: true,
+      zoomControl: true,
+      attributionControl: true
+    }).setView(defaultCenter, defaultZoom);
 
     // Add tile layer
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
@@ -55,6 +60,13 @@ const MapView = ({ images, userLocation, radius }) => {
       }
     }
 
+    // Ensure map is properly sized
+    setTimeout(() => {
+      if (mapInstance.current) {
+        mapInstance.current.invalidateSize();
+      }
+    }, 100);
+
     return () => {
       if (mapInstance.current) {
         mapInstance.current.remove();
@@ -72,18 +84,26 @@ const MapView = ({ images, userLocation, radius }) => {
     markersRef.current = [];
 
     // Add markers for each image
-    images.forEach((image) => {
+    images.forEach(async (image) => {
       const marker = L.marker([image.latitude, image.longitude])
         .addTo(mapInstance.current);
+
+      // Get location name for the popup
+      let locationDisplay = `${image.latitude.toFixed(4)}, ${image.longitude.toFixed(4)}`;
+      try {
+        const locationName = await getLocationNameForCoords(image.latitude, image.longitude);
+        locationDisplay = locationName;
+      } catch (error) {
+        console.warn('Failed to get location name for popup:', error);
+      }
 
       // Create popup content
       const popupContent = `
         <div style="max-width: 200px;">
           <img src="${getImageUrl(image.id)}" 
                style="width: 100%; height: 120px; object-fit: cover; border-radius: 4px; margin-bottom: 8px;" 
-               alt="${image.original_filename || image.filename}" />
+               alt="Tool image" />
           <div style="font-size: 12px;">
-            <strong>${image.original_filename || image.filename}</strong>
             ${image.tags && image.tags.length > 0 ? `
               <div style="margin: 4px 0;">
                 ${image.tags.map((tag, index) => `
@@ -96,7 +116,7 @@ const MapView = ({ images, userLocation, radius }) => {
               </div>
             ` : ''}
             <div style="color: #666; margin-top: 4px;">
-              📍 ${image.latitude.toFixed(4)}, ${image.longitude.toFixed(4)}
+              📍 ${locationDisplay}
             </div>
             <div style="color: #666; font-size: 10px;">
               ${new Date(image.created_at).toLocaleDateString()}
@@ -123,7 +143,19 @@ const MapView = ({ images, userLocation, radius }) => {
       userMarker.bindPopup(`
         <div style="text-align: center;">
           <strong>📍 Your Location</strong><br>
-          <small>${userLocation.latitude.toFixed(4)}, ${userLocation.longitude.toFixed(4)}</small>
+          ${userLocationName ? `
+            <div style="margin: 0.5rem 0; font-weight: 500;">
+              ${userLocationName.name}
+            </div>
+            <div style="font-size: 0.75rem; color: #666;">
+              ${userLocationName.city && `${userLocationName.city}, `}
+              ${userLocationName.state && `${userLocationName.state}, `}
+              ${userLocationName.country}
+            </div>
+          ` : ''}
+          <small style="color: #999; margin-top: 0.25rem; display: block;">
+            ${userLocation.latitude.toFixed(4)}, ${userLocation.longitude.toFixed(4)}
+          </small>
         </div>
       `);
 
@@ -154,6 +186,20 @@ const MapView = ({ images, userLocation, radius }) => {
 
   }, [images, userLocation, radius]);
 
+  // Handle window resize
+  useEffect(() => {
+    const handleResize = () => {
+      if (mapInstance.current) {
+        setTimeout(() => {
+          mapInstance.current.invalidateSize();
+        }, 100);
+      }
+    };
+
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
   return (
     <div
       ref={mapRef}
@@ -162,7 +208,12 @@ const MapView = ({ images, userLocation, radius }) => {
         width: '100%',
         borderRadius: 'var(--border-radius-lg)',
         border: '1px solid var(--border-color)',
-        boxShadow: 'var(--shadow-md)'
+        boxShadow: 'var(--shadow-md)',
+        overflow: 'hidden',
+        position: 'relative',
+        zIndex: 1,
+        contain: 'layout style paint',
+        isolation: 'isolate'
       }}
     />
   );

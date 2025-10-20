@@ -2,16 +2,43 @@ import React, { useState, useEffect } from 'react';
 import { searchImages, searchByImage, getImageUrl } from '../services/api';
 import MapView from './MapView';
 import useGeolocation from '../hooks/useGeolocation';
+import { getLocationNameForCoords } from '../services/locationService';
+
+// Component to display location name for coordinates
+const LocationDisplay = ({ latitude, longitude }) => {
+    const [locationName, setLocationName] = useState(null);
+    const [loading, setLoading] = useState(true);
+
+    useEffect(() => {
+        if (latitude && longitude) {
+            getLocationNameForCoords(latitude, longitude)
+                .then(name => {
+                    setLocationName(name);
+                    setLoading(false);
+                })
+                .catch(() => {
+                    setLocationName(`${latitude.toFixed(4)}, ${longitude.toFixed(4)}`);
+                    setLoading(false);
+                });
+        }
+    }, [latitude, longitude]);
+
+    if (loading) {
+        return <span>Loading location...</span>;
+    }
+
+    return <span>{locationName}</span>;
+};
 
 const SearchPage = () => {
-    const { location } = useGeolocation();
+    const { location, locationName } = useGeolocation();
     const [query, setQuery] = useState('');
     const [searchResults, setSearchResults] = useState([]);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState(null);
     const [hasSearched, setHasSearched] = useState(false);
     const [useLocation, setUseLocation] = useState(true);
-    const [showMap, setShowMap] = useState(true);
+    const [showMap, setShowMap] = useState(false);
     const [searchType, setSearchType] = useState('text'); // 'text' or 'image'
     const [searchImage, setSearchImage] = useState(null);
     const [searchImagePreview, setSearchImagePreview] = useState(null);
@@ -286,7 +313,7 @@ const SearchPage = () => {
         <div className="container">
             <div className="page-header">
                 <h1>Search Tool Images</h1>
-                <p>Find tool images by text search, image similarity, or location. Use the map to visualize where tools were found.</p>
+                <p>Find tools by text, image, or location with map visualization</p>
             </div>
 
             {/* Search Form */}
@@ -304,7 +331,7 @@ const SearchPage = () => {
                                     checked={searchType === 'text'}
                                     onChange={(e) => handleSearchTypeChange(e.target.value)}
                                 />
-                                <span>🔤 Text Search</span>
+                                <span>🔤 Text</span>
                             </label>
                             <label className="radio-label" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                                 <input
@@ -314,7 +341,7 @@ const SearchPage = () => {
                                     checked={searchType === 'image'}
                                     onChange={(e) => handleSearchTypeChange(e.target.value)}
                                 />
-                                <span>📷 Image Search</span>
+                                <span>📷 Image</span>
                             </label>
                         </div>
                     </div>
@@ -401,10 +428,22 @@ const SearchPage = () => {
                             {useLocation && (
                                 <div className="location-controls">
                                     <small className="form-help">
-                                        {location ?
-                                            `Current location: ${location.latitude.toFixed(4)}, ${location.longitude.toFixed(4)}` :
+                                        {location && locationName ? (
+                                            <div>
+                                                <div style={{ fontWeight: '500', marginBottom: '0.25rem' }}>
+                                                    📍 {locationName.name}
+                                                </div>
+                                                <div style={{ fontSize: '0.75rem', color: 'var(--text-light)' }}>
+                                                    {locationName.city && `${locationName.city}, `}
+                                                    {locationName.state && `${locationName.state}, `}
+                                                    {locationName.country}
+                                                </div>
+                                            </div>
+                                        ) : location ? (
+                                            `Current location: ${location.latitude.toFixed(4)}, ${location.longitude.toFixed(4)}`
+                                        ) : (
                                             'Location not available'
-                                        }
+                                        )}
                                     </small>
                                 </div>
                             )}
@@ -525,13 +564,10 @@ const SearchPage = () => {
             {/* Map View */}
             {showMap && (
                 <div className="map-card">
-                    <div className="card-header">
-                        <h3>Map View</h3>
-                        <p>Tool locations within 10km radius</p>
-                    </div>
                     <MapView
                         images={searchResults}
                         userLocation={useLocation ? location : null}
+                        userLocationName={useLocation ? locationName : null}
                         radius={10000}
                     />
                 </div>
@@ -583,23 +619,13 @@ const SearchPage = () => {
                                     </div>
                                     <div className="image-meta">
                                         <div className="meta-item">
-                                            <span className="meta-icon">📁</span>
-                                            <span>{image.original_filename || image.filename}</span>
-                                        </div>
-                                        <div className="meta-item">
                                             <span className="meta-icon">📍</span>
-                                            <span>{image.latitude.toFixed(4)}, {image.longitude.toFixed(4)}</span>
+                                            <LocationDisplay latitude={image.latitude} longitude={image.longitude} />
                                         </div>
                                         <div className="meta-item">
                                             <span className="meta-icon">📅</span>
                                             <span>{formatDate(image.created_at)}</span>
                                         </div>
-                                        {image.file_size && (
-                                            <div className="meta-item">
-                                                <span className="meta-icon">📄</span>
-                                                <span>{(image.file_size / 1024).toFixed(1)} KB</span>
-                                            </div>
-                                        )}
                                     </div>
                                 </div>
                             </div>
@@ -613,15 +639,6 @@ const SearchPage = () => {
                     <div className="alert alert-warning text-center">
                         <h4>🔍 No Images Found</h4>
                         <p>Try searching for different tool names or enable location-based search.</p>
-                    </div>
-                </div>
-            )}
-
-            {!loading && !hasSearched && (
-                <div className="card mt-4">
-                    <div className="alert alert-info text-center">
-                        <h4>🚀 Start Your Search</h4>
-                        <p>Enter a tool name above or enable location-based search to find nearby tool images.</p>
                     </div>
                 </div>
             )}

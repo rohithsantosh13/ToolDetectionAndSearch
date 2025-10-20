@@ -41,7 +41,7 @@ app = FastAPI(
 cors_origins = os.getenv("CORS_ORIGINS", "http://localhost:3000").split(",")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=cors_origins,
+    allow_origins= ["*"] ,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -73,8 +73,9 @@ async def health_check():
 if __name__ == "__main__":
     import uvicorn
     
-    host = os.getenv("API_HOST", "localhost")
+    host = os.getenv("API_HOST", "0.0.0.0")
     port = int(os.getenv("API_PORT", "8000"))
+    print(os.getenv("API_HOST"))
     
     uvicorn.run(
         "main:app",

@@ -1,5 +1,6 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { detectTools, saveImageWithTags } from '../services/api';
+import { getLocationNameForCoords } from '../services/locationService';
 
 const CameraCapture = ({ latitude, longitude }) => {
     const [selectedFile, setSelectedFile] = useState(null);
@@ -13,6 +14,8 @@ const CameraCapture = ({ latitude, longitude }) => {
     const [editableTags, setEditableTags] = useState([]);
     const [showEditForm, setShowEditForm] = useState(false);
     const [saving, setSaving] = useState(false);
+    const [locationName, setLocationName] = useState(null);
+    const [captureTime, setCaptureTime] = useState(null);
     const videoRef = useRef(null);
     const canvasRef = useRef(null);
     const streamRef = useRef(null);
@@ -26,6 +29,13 @@ const CameraCapture = ({ latitude, longitude }) => {
         };
         checkMobile();
     }, []);
+
+    // Get location name for the current coordinates
+    useEffect(() => {
+        if (latitude && longitude) {
+            getLocationNameForCoords(latitude, longitude).then(setLocationName);
+        }
+    }, [latitude, longitude]);
 
     // Handle video stream when showCamera changes
     React.useEffect(() => {
@@ -53,6 +63,10 @@ const CameraCapture = ({ latitude, longitude }) => {
             setError(null);
             setUploadResult(null);
 
+            // Set capture time to when the file was selected (or file's lastModified if available)
+            const captureTimestamp = file.lastModified ? new Date(file.lastModified) : new Date();
+            setCaptureTime(captureTimestamp);
+
             // Create preview URL
             const url = URL.createObjectURL(file);
             setPreviewUrl(url);
@@ -79,7 +93,7 @@ const CameraCapture = ({ latitude, longitude }) => {
                 confidences: result.confidences || [],
                 latitude: latitude,
                 longitude: longitude,
-                created_at: new Date().toISOString(),
+                created_at: (captureTime || new Date()).toISOString(),
                 file_size: selectedFile.size,
                 mime_type: selectedFile.type
             };
@@ -111,6 +125,7 @@ const CameraCapture = ({ latitude, longitude }) => {
         setServerImageLoaded(false);
         setShowEditForm(false);
         setEditableTags([]);
+        setCaptureTime(null);
         stopCamera();
 
         // Reset file inputs
@@ -180,6 +195,7 @@ const CameraCapture = ({ latitude, longitude }) => {
         setServerImageLoaded(false);
         setShowEditForm(false);
         setEditableTags([]);
+        setCaptureTime(null);
         stopCamera();
 
         // Reset file inputs
@@ -254,6 +270,9 @@ const CameraCapture = ({ latitude, longitude }) => {
             canvas.height = video.videoHeight;
             context.drawImage(video, 0, 0);
 
+            // Set capture time to when the photo is actually taken
+            setCaptureTime(new Date());
+
             canvas.toBlob((blob) => {
                 if (blob) {
                     const file = new File([blob], 'camera-capture.jpg', { type: 'image/jpeg' });
@@ -277,11 +296,13 @@ const CameraCapture = ({ latitude, longitude }) => {
 
     return (
         <div className="camera-capture">
-            <div className="search-filters">
-                {/* AI Model Info */}
-
-                <div className="form-group">
-                    <label className="form-label">📷 Take Photo</label>
+            <div className="camera-options" style={{
+                display: 'grid',
+                gridTemplateColumns: '1fr 1fr',
+                gap: '1rem',
+                marginBottom: '1.5rem'
+            }}>
+                <div className="camera-option">
                     <input
                         type="file"
                         accept="image/*"
@@ -294,17 +315,40 @@ const CameraCapture = ({ latitude, longitude }) => {
                     <button
                         onClick={handleTakePhoto}
                         className="btn btn-primary"
-                        style={{ width: '100%' }}
+                        style={{
+                            width: '100%',
+                            height: '100%',
+                            minHeight: '48px',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            gap: '0.125rem',
+                            fontSize: '0.8rem',
+                            fontWeight: '600',
+                            padding: '0.375rem',
+                            boxSizing: 'border-box',
+                            borderRadius: '0.375rem',
+                            textShadow: '0 1px 2px rgba(0,0,0,0.3)',
+                            transition: 'all 0.2s ease'
+                        }}
                     >
-                        📷 Take Photo
+                        <span style={{ fontSize: '1.25rem', filter: 'drop-shadow(0 1px 2px rgba(0,0,0,0.3))' }}>📷</span>
+                        <span style={{ fontSize: '0.8rem', fontWeight: '600' }}>Take Photo</span>
                     </button>
-                    <small style={{ display: 'block', marginTop: '0.5rem', color: 'var(--text-light)', fontSize: '0.75rem' }}>
-                        {isMobile ? 'Opens camera on mobile devices' : 'Opens camera on desktop (requires permission)'}
+                    <small style={{
+                        display: 'block',
+                        marginTop: '0.5rem',
+                        color: 'var(--text-secondary)',
+                        fontSize: '0.8rem',
+                        textAlign: 'center',
+                        fontWeight: '500',
+                        lineHeight: '1.2'
+                    }}>
                     </small>
                 </div>
 
-                <div className="form-group">
-                    <label className="form-label">📁 Upload File</label>
+                <div className="camera-option">
                     <input
                         type="file"
                         accept="image/*"
@@ -313,11 +357,40 @@ const CameraCapture = ({ latitude, longitude }) => {
                         id="file-input"
                         multiple={false}
                     />
-                    <label htmlFor="file-input" className="btn btn-secondary" style={{ width: '100%' }}>
-                        📁 Choose File
+                    <label
+                        htmlFor="file-input"
+                        className="btn btn-secondary"
+                        style={{
+                            width: '100%',
+                            height: '100%',
+                            minHeight: '48px',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            gap: '0.125rem',
+                            fontSize: '0.8rem',
+                            fontWeight: '600',
+                            padding: '0.375rem',
+                            boxSizing: 'border-box',
+                            cursor: 'pointer',
+                            borderRadius: '0.375rem',
+                            textShadow: '0 1px 2px rgba(0,0,0,0.3)',
+                            transition: 'all 0.2s ease'
+                        }}
+                    >
+                        <span style={{ fontSize: '1.25rem', filter: 'drop-shadow(0 1px 2px rgba(0,0,0,0.3))' }}>📁</span>
+                        <span style={{ fontSize: '0.8rem', fontWeight: '600' }}>Choose File</span>
                     </label>
-                    <small style={{ display: 'block', marginTop: '0.5rem', color: 'var(--text-light)', fontSize: '0.75rem' }}>
-                        Select from gallery, files, or use as camera fallback
+                    <small style={{
+                        display: 'block',
+                        marginTop: '0.5rem',
+                        color: 'var(--text-secondary)',
+                        fontSize: '0.8rem',
+                        textAlign: 'center',
+                        fontWeight: '500',
+                        lineHeight: '1.2'
+                    }}>
                     </small>
                 </div>
             </div>
@@ -350,17 +423,42 @@ const CameraCapture = ({ latitude, longitude }) => {
                             ref={canvasRef}
                             style={{ display: 'none' }}
                         />
-                        <div className="camera-controls" style={{ marginTop: '1rem' }}>
+                        <div className="camera-controls" style={{
+                            marginTop: '1.5rem',
+                            display: 'flex',
+                            gap: '1rem',
+                            justifyContent: 'center',
+                            flexWrap: 'wrap'
+                        }}>
                             <button
                                 onClick={capturePhoto}
                                 className="btn btn-primary"
-                                style={{ marginRight: '1rem' }}
+                                style={{
+                                    padding: '0.875rem 2rem',
+                                    fontSize: '1rem',
+                                    fontWeight: '600',
+                                    height: '48px',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '0.5rem',
+                                    minWidth: '160px'
+                                }}
                             >
                                 📸 Capture Photo
                             </button>
                             <button
                                 onClick={stopCamera}
                                 className="btn btn-secondary"
+                                style={{
+                                    padding: '0.875rem 2rem',
+                                    fontSize: '1rem',
+                                    fontWeight: '600',
+                                    height: '48px',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '0.5rem',
+                                    minWidth: '160px'
+                                }}
                             >
                                 ❌ Cancel
                             </button>
@@ -384,11 +482,30 @@ const CameraCapture = ({ latitude, longitude }) => {
                         </div>
                     </div>
 
-                    <div className="flex gap-4 justify-center mt-4">
+                    <div style={{
+                        display: 'flex',
+                        gap: '1rem',
+                        justifyContent: 'center',
+                        flexWrap: 'wrap',
+                        paddingTop: '1rem',
+                        padding: '1rem'
+                    }}>
                         <button
                             onClick={handleRetake}
                             className="btn btn-secondary"
                             disabled={uploading}
+                            style={{
+                                flex: '1 1 auto',
+                                minWidth: '140px',
+                                padding: '0.875rem 1.5rem',
+                                fontSize: '1rem',
+                                fontWeight: '600',
+                                height: '48px',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                gap: '0.5rem'
+                            }}
                         >
                             🔄 Retake
                         </button>
@@ -396,10 +513,22 @@ const CameraCapture = ({ latitude, longitude }) => {
                             onClick={handleUpload}
                             className="btn btn-primary"
                             disabled={uploading}
+                            style={{
+                                flex: '1 1 auto',
+                                minWidth: '140px',
+                                padding: '0.875rem 1.5rem',
+                                fontSize: '1rem',
+                                fontWeight: '600',
+                                height: '48px',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                gap: '0.5rem'
+                            }}
                         >
                             {uploading ? (
                                 <>
-                                    <div className="spinner" style={{ width: '16px', height: '16px', marginRight: '8px' }}></div>
+                                    <div className="spinner" style={{ width: '16px', height: '16px' }}></div>
                                     Uploading...
                                 </>
                             ) : (
@@ -465,7 +594,16 @@ const CameraCapture = ({ latitude, longitude }) => {
                                     <button
                                         onClick={() => removeTag(index)}
                                         className="btn btn-danger"
-                                        style={{ padding: '0.25rem 0.5rem', fontSize: '0.75rem' }}
+                                        style={{
+                                            padding: '0.5rem',
+                                            fontSize: '0.8rem',
+                                            height: '36px',
+                                            minWidth: '36px',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            justifyContent: 'center',
+                                            borderRadius: '0.5rem'
+                                        }}
                                     >
                                         ❌
                                     </button>
@@ -476,43 +614,85 @@ const CameraCapture = ({ latitude, longitude }) => {
                         <button
                             onClick={addNewTag}
                             className="btn btn-secondary"
-                            style={{ marginBottom: '1rem', width: '100%' }}
+                            style={{
+                                marginBottom: '1rem',
+                                width: '100%',
+                                height: '44px',
+                                padding: '0.75rem 1rem',
+                                fontSize: '0.95rem',
+                                fontWeight: '600',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                gap: '0.5rem'
+                            }}
                         >
                             ➕ Add New Tag
                         </button>
 
                         <div style={{
-                            display: 'flex',
-                            gap: '0.5rem',
+                            display: 'grid',
+                            gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))',
+                            gap: '0.75rem',
                             justifyContent: 'center',
-                            flexWrap: 'wrap'
+                            width: '100%'
                         }}>
                             <button
                                 onClick={handleRetake}
                                 className="btn btn-secondary"
                                 disabled={saving}
+                                style={{
+                                    padding: '0.875rem 1rem',
+                                    fontSize: '0.95rem',
+                                    fontWeight: '600',
+                                    height: '44px',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    gap: '0.4rem'
+                                }}
                             >
-                                🔄 Retake Photo
+                                🔄 Retake
                             </button>
                             <button
                                 onClick={handleCancelEdit}
                                 className="btn btn-outline"
                                 disabled={saving}
+                                style={{
+                                    padding: '0.875rem 1rem',
+                                    fontSize: '0.95rem',
+                                    fontWeight: '600',
+                                    height: '44px',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    gap: '0.4rem'
+                                }}
                             >
-                                ❌ Cancel & Discard
+                                ❌ Discard
                             </button>
                             <button
                                 onClick={handleSave}
                                 className="btn btn-primary"
                                 disabled={saving}
+                                style={{
+                                    padding: '0.875rem 1rem',
+                                    fontSize: '0.95rem',
+                                    fontWeight: '600',
+                                    height: '44px',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    gap: '0.4rem'
+                                }}
                             >
                                 {saving ? (
                                     <>
-                                        <div className="spinner" style={{ width: '16px', height: '16px', marginRight: '8px' }}></div>
+                                        <div className="spinner" style={{ width: '14px', height: '14px' }}></div>
                                         Saving...
                                     </>
                                 ) : (
-                                    '💾 Save & Continue'
+                                    '💾 Save'
                                 )}
                             </button>
                         </div>
@@ -571,8 +751,7 @@ const CameraCapture = ({ latitude, longitude }) => {
                                     )}
                                 </div>
                                 <div className="image-meta">
-                                    📁 {uploadResult.original_filename || uploadResult.filename}<br />
-                                    📍 {uploadResult.latitude.toFixed(6)}, {uploadResult.longitude.toFixed(6)}<br />
+                                    📍 {locationName || `${uploadResult.latitude.toFixed(6)}, ${uploadResult.longitude.toFixed(6)}`}<br />
                                     📅 {new Date(uploadResult.created_at).toLocaleString()}
                                 </div>
                             </div>

@@ -22,6 +22,7 @@ const useGeolocation = () => {
     }, []);
 
     const getCurrentLocation = async (isRetry = false, forceFresh = false) => {
+        console.log('getCurrentLocation called:', { isRetry, forceFresh, retryCount });
         setLoading(true);
         if (!isRetry) {
             setError(null);
@@ -29,21 +30,40 @@ const useGeolocation = () => {
         }
 
         try {
+            console.log('Getting current location with enhanced accuracy...');
             const result = await getCurrentLocationWithName(retryCount);
+
+            console.log('Location result:', result);
+            console.log('Location accuracy:', result.location.accuracy, 'meters');
+
             setLocation(result.location);
             setLocationName(result.locationName);
             setError(null);
             setRetryCount(0);
+
+            // Log accuracy information for debugging
+            if (result.location.accuracy) {
+                if (result.location.accuracy <= 10) {
+                    console.log('Excellent location accuracy!');
+                } else if (result.location.accuracy <= 50) {
+                    console.log('Good location accuracy');
+                } else if (result.location.accuracy <= 100) {
+                    console.log('Fair location accuracy');
+                } else {
+                    console.log('Poor location accuracy - consider moving to a better location');
+                }
+            }
         } catch (err) {
             console.error('Location error:', err);
             setError(err.message);
 
-            // Auto-retry only for timeout errors, not permission errors
-            if (retryCount < 1 && err.message.includes('timeout')) {
+            // Enhanced retry logic - retry for timeout and poor accuracy
+            if (retryCount < 2 && (err.message.includes('timeout') || err.message.includes('accuracy'))) {
+                console.log(`Retrying location detection (attempt ${retryCount + 1}/2)...`);
                 setRetryCount(prev => prev + 1);
                 setTimeout(() => {
                     getCurrentLocation(true);
-                }, 3000);
+                }, 2000 * (retryCount + 1)); // Increasing delay between retries
             }
         } finally {
             setLoading(false);
@@ -88,6 +108,12 @@ const useGeolocation = () => {
 
     useEffect(() => {
         // Automatically try to get location on mount
+        console.log('useGeolocation: Auto-detecting location on mount...');
+        console.log('Browser info:', {
+            userAgent: navigator.userAgent,
+            protocol: window.location.protocol,
+            hostname: window.location.hostname
+        });
         getCurrentLocation();
     }, []);
 

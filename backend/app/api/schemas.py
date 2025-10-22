@@ -19,6 +19,9 @@ class UploadResponse(BaseModel):
     created_at: datetime
     file_size: Optional[float] = None
     mime_type: Optional[str] = None
+    onedrive_file_id: Optional[str] = None
+    onedrive_file_url: Optional[str] = None
+    onedrive_download_url: Optional[str] = None
 
 
 class SearchRequest(BaseModel):
@@ -42,6 +45,9 @@ class SearchResponse(BaseModel):
     created_at: datetime
     file_size: Optional[float] = None
     mime_type: Optional[str] = None
+    onedrive_file_id: Optional[str] = None
+    onedrive_file_url: Optional[str] = None
+    onedrive_download_url: Optional[str] = None
 
 
 class SearchResultsResponse(BaseModel):

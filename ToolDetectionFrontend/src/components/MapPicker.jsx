@@ -76,6 +76,9 @@ const MapPicker = ({
         // Add initial marker if location provided
         if (initialLocation) {
             addMarker(initialLocation.latitude, initialLocation.longitude);
+        } else {
+            // If no initial location, try to get user's current location
+            getCurrentLocationOnInit();
         }
 
         // Ensure map is properly sized
@@ -214,62 +217,55 @@ const MapPicker = ({
 
         setLoading(true);
 
-        // Mobile-optimized options
+        // Enhanced mobile detection
         const isMobile = /android|webos|iphone|ipad|ipod|blackberry|iemobile|opera mini/i.test(navigator.userAgent.toLowerCase());
+        const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent.toLowerCase());
+        const isAndroid = /android/i.test(navigator.userAgent.toLowerCase());
+
+        // Enhanced geolocation options for better accuracy
+        const geolocationOptions = {
+            enableHighAccuracy: true,  // Always enable high accuracy
+            timeout: isMobile ? 30000 : 15000,  // Longer timeout for mobile
+            maximumAge: 0  // Don't use cached location, get fresh location
+        };
+
+        // For iOS, we can try to get even more accurate location
+        if (isIOS) {
+            geolocationOptions.timeout = 45000;  // Even longer timeout for iOS
+        }
 
         navigator.geolocation.getCurrentPosition(
             async (position) => {
-                const { latitude, longitude } = position.coords;
+                const { latitude, longitude, accuracy } = position.coords;
+                console.log('Got current location:', latitude, longitude, 'Accuracy:', accuracy, 'meters');
 
-                // Update map view
-                mapInstance.current.setView([latitude, longitude], 15);
-                addMarker(latitude, longitude);
+                // Check if accuracy is acceptable (within 100 meters is good)
+                if (accuracy > 100) {
+                    console.log('Location accuracy is low, trying to get better location...');
+                    // Try to get a more accurate location
+                    navigator.geolocation.getCurrentPosition(
+                        async (betterPosition) => {
+                            const { latitude: betterLat, longitude: betterLng, accuracy: betterAccuracy } = betterPosition.coords;
+                            console.log('Got better location:', betterLat, betterLng, 'Accuracy:', betterAccuracy, 'meters');
 
-                // Get location name
-                try {
-                    console.log('Getting current location name for:', latitude, longitude);
-                    const locationName = await getLocationName(latitude, longitude);
-                    console.log('Current location name result:', locationName);
-                    setLocationName(locationName);
-
-                    // Update marker popup with resolved address
-                    addMarker(latitude, longitude, locationName);
-
-                    const location = {
-                        latitude,
-                        longitude,
-                        name: locationName.name,
-                        city: locationName.city,
-                        state: locationName.state,
-                        country: locationName.country
-                    };
-
-                    setSelectedLocation(location);
-                    onLocationSelect(location);
-                } catch (error) {
-                    console.error('Error getting current location name:', error);
-
-                    // Update marker with fallback coordinates
-                    const fallbackLocationName = {
-                        name: `${latitude.toFixed(4)}, ${longitude.toFixed(4)}`,
-                        city: 'Unknown City',
-                        state: 'Unknown State',
-                        country: 'Unknown Country'
-                    };
-                    addMarker(latitude, longitude, fallbackLocationName);
-
-                    const location = {
-                        latitude,
-                        longitude,
-                        name: fallbackLocationName.name,
-                        city: fallbackLocationName.city,
-                        state: fallbackLocationName.state,
-                        country: fallbackLocationName.country
-                    };
-                    setSelectedLocation(location);
-                    onLocationSelect(location);
-                } finally {
-                    setLoading(false);
+                            if (betterAccuracy < accuracy) {
+                                await processLocation(betterLat, betterLng, betterAccuracy);
+                            } else {
+                                await processLocation(latitude, longitude, accuracy);
+                            }
+                        },
+                        (error) => {
+                            console.log('Failed to get better location, using original:', error);
+                            processLocation(latitude, longitude, accuracy);
+                        },
+                        {
+                            enableHighAccuracy: true,
+                            timeout: 20000,
+                            maximumAge: 0
+                        }
+                    );
+                } else {
+                    await processLocation(latitude, longitude, accuracy);
                 }
             },
             (error) => {
@@ -291,12 +287,213 @@ const MapPicker = ({
                 alert(errorMessage);
                 setLoading(false);
             },
-            {
-                enableHighAccuracy: true,
-                timeout: isMobile ? 30000 : 10000, // Longer timeout for mobile
-                maximumAge: 60000
-            }
+            geolocationOptions
         );
+
+        // Helper function to process the location
+        const processLocation = async (lat, lng, acc) => {
+            console.log('Processing location:', lat, lng, 'Accuracy:', acc, 'meters');
+
+            // Update map view
+            mapInstance.current.setView([lat, lng], 15);
+            addMarker(lat, lng);
+
+            // Get location name
+            try {
+                console.log('Getting current location name for:', lat, lng);
+                const locationName = await getLocationName(lat, lng);
+                console.log('Current location name result:', locationName);
+                setLocationName(locationName);
+
+                // Update marker popup with resolved address and accuracy info
+                const enhancedLocationName = {
+                    ...locationName,
+                    accuracy: acc
+                };
+
+                addMarker(lat, lng, enhancedLocationName);
+
+                const location = {
+                    latitude: lat,
+                    longitude: lng,
+                    name: locationName.name,
+                    city: locationName.city,
+                    state: locationName.state,
+                    country: locationName.country,
+                    accuracy: acc
+                };
+
+                setSelectedLocation(location);
+                onLocationSelect(location);
+            } catch (error) {
+                console.error('Error getting location name:', error);
+
+                // Update marker with fallback coordinates
+                const fallbackLocationName = {
+                    name: `${lat.toFixed(4)}, ${lng.toFixed(4)}`,
+                    city: 'Unknown City',
+                    state: 'Unknown State',
+                    country: 'Unknown Country',
+                    accuracy: acc
+                };
+                addMarker(lat, lng, fallbackLocationName);
+
+                const location = {
+                    latitude: lat,
+                    longitude: lng,
+                    name: fallbackLocationName.name,
+                    city: fallbackLocationName.city,
+                    state: fallbackLocationName.state,
+                    country: fallbackLocationName.country,
+                    accuracy: acc
+                };
+                setSelectedLocation(location);
+                onLocationSelect(location);
+            } finally {
+                setLoading(false);
+            }
+        };
+    };
+
+    const getCurrentLocationOnInit = () => {
+        if (!navigator.geolocation) {
+            console.log('Geolocation is not supported by this browser');
+            return;
+        }
+
+        console.log('Attempting to get current location on map initialization...');
+        setLoading(true);
+
+        // Enhanced mobile detection
+        const isMobile = /android|webos|iphone|ipad|ipod|blackberry|iemobile|opera mini/i.test(navigator.userAgent.toLowerCase());
+        const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent.toLowerCase());
+        const isAndroid = /android/i.test(navigator.userAgent.toLowerCase());
+
+        // Enhanced geolocation options for better accuracy
+        const geolocationOptions = {
+            enableHighAccuracy: true,  // Always enable high accuracy
+            timeout: isMobile ? 30000 : 15000,  // Longer timeout for mobile
+            maximumAge: 0  // Don't use cached location, get fresh location
+        };
+
+        // For iOS, we can try to get even more accurate location
+        if (isIOS) {
+            geolocationOptions.timeout = 45000;  // Even longer timeout for iOS
+        }
+
+        navigator.geolocation.getCurrentPosition(
+            async (position) => {
+                const { latitude, longitude, accuracy } = position.coords;
+                console.log('Got current location on init:', latitude, longitude, 'Accuracy:', accuracy, 'meters');
+
+                // Check if accuracy is acceptable (within 100 meters is good)
+                if (accuracy > 100) {
+                    console.log('Location accuracy is low, trying to get better location...');
+                    // Try to get a more accurate location
+                    navigator.geolocation.getCurrentPosition(
+                        async (betterPosition) => {
+                            const { latitude: betterLat, longitude: betterLng, accuracy: betterAccuracy } = betterPosition.coords;
+                            console.log('Got better location:', betterLat, betterLng, 'Accuracy:', betterAccuracy, 'meters');
+
+                            if (betterAccuracy < accuracy) {
+                                await processLocation(betterLat, betterLng, betterAccuracy);
+                            } else {
+                                await processLocation(latitude, longitude, accuracy);
+                            }
+                        },
+                        (error) => {
+                            console.log('Failed to get better location, using original:', error);
+                            processLocation(latitude, longitude, accuracy);
+                        },
+                        {
+                            enableHighAccuracy: true,
+                            timeout: 20000,
+                            maximumAge: 0
+                        }
+                    );
+                } else {
+                    await processLocation(latitude, longitude, accuracy);
+                }
+            },
+            (error) => {
+                console.log('Error getting current location on init:', error);
+                setLoading(false);
+                // Don't show error to user on init - just fall back to default location
+            },
+            geolocationOptions
+        );
+
+        // Helper function to process the location
+        const processLocation = async (lat, lng, acc) => {
+            console.log('Processing location:', lat, lng, 'Accuracy:', acc, 'meters');
+
+            // Update map view
+            if (mapInstance.current) {
+                mapInstance.current.setView([lat, lng], 15);
+                addMarker(lat, lng);
+            }
+
+            // Get location name
+            try {
+                console.log('Getting current location name for:', lat, lng);
+                const locationName = await getLocationName(lat, lng);
+                console.log('Current location name result:', locationName);
+                setLocationName(locationName);
+
+                // Update marker popup with resolved address and accuracy info
+                const enhancedLocationName = {
+                    ...locationName,
+                    accuracy: acc
+                };
+
+                if (mapInstance.current) {
+                    addMarker(lat, lng, enhancedLocationName);
+                }
+
+                const location = {
+                    latitude: lat,
+                    longitude: lng,
+                    name: locationName.name,
+                    city: locationName.city,
+                    state: locationName.state,
+                    country: locationName.country,
+                    accuracy: acc
+                };
+
+                setSelectedLocation(location);
+                onLocationSelect(location);
+            } catch (error) {
+                console.error('Error getting location name on init:', error);
+
+                // Update marker with fallback coordinates
+                const fallbackLocationName = {
+                    name: `${lat.toFixed(4)}, ${lng.toFixed(4)}`,
+                    city: 'Unknown City',
+                    state: 'Unknown State',
+                    country: 'Unknown Country',
+                    accuracy: acc
+                };
+
+                if (mapInstance.current) {
+                    addMarker(lat, lng, fallbackLocationName);
+                }
+
+                const location = {
+                    latitude: lat,
+                    longitude: lng,
+                    name: fallbackLocationName.name,
+                    city: fallbackLocationName.city,
+                    state: fallbackLocationName.state,
+                    country: fallbackLocationName.country,
+                    accuracy: acc
+                };
+
+                setSelectedLocation(location);
+                onLocationSelect(location);
+            } finally {
+                setLoading(false);
+            }
+        };
     };
 
     return (

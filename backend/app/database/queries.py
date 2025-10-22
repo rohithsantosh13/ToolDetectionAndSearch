@@ -17,7 +17,7 @@ def search_images(
     limit: int = 50
 ) -> List[Image]:
     """
-    Search images by tag and/or location
+    Search images by tag and/or location with location-based prioritization
     
     Args:
         db: Database session
@@ -28,11 +28,9 @@ def search_images(
         limit: Maximum number of results
     
     Returns:
-        List of matching Image objects
+        List of matching Image objects, prioritized by location proximity
     """
     import os
-    
-    filters = []
     
     # Text search in tags
     if query:
@@ -56,47 +54,101 @@ def search_images(
             search_filters.append(func.array_to_string(Image.tags, ',').ilike(f'%{term}%'))
         
         # Use OR logic for all search strategies
-        filters.append(or_(*search_filters))
+        text_filter = or_(*search_filters)
+    else:
+        text_filter = None
     
-    # Location-based search
+    # If location is provided, implement location-based prioritization
     if lat is not None and lon is not None:
         point = f'POINT({lon} {lat})'
-        location_filter = func.ST_DWithin(
-            Image.location,
-            func.ST_GeogFromText(point),
-            radius_m
+        
+        # First, get nearby results (within radius)
+        nearby_query = db.query(Image)
+        if text_filter:
+            nearby_query = nearby_query.filter(text_filter)
+        
+        # Filter by location radius
+        nearby_query = nearby_query.filter(
+            func.ST_DWithin(
+                Image.location,
+                func.ST_GeogFromText(point),
+                radius_m
+            )
         )
-        filters.append(location_filter)
-    
-    # Build query
-    db_query = db.query(Image)
-    
-    if filters:
-        db_query = db_query.filter(and_(*filters))
-    
-    # Order by distance if location is provided
-    if lat is not None and lon is not None:
-        point = f'POINT({lon} {lat})'
-        db_query = db_query.order_by(
+        
+        # Order nearby results by distance
+        nearby_query = nearby_query.order_by(
             func.ST_Distance(Image.location, func.ST_GeogFromText(point))
         )
+        
+        # Get nearby results
+        nearby_results = nearby_query.all()
+        
+        # If we have enough nearby results, return them
+        if len(nearby_results) >= limit:
+            # Filter out records for missing files
+            valid_results = []
+            for image in nearby_results:
+                file_path = os.path.join(os.getenv("UPLOAD_DIR", "./uploads"), image.filename)
+                if os.path.exists(file_path):
+                    valid_results.append(image)
+                    if len(valid_results) >= limit:
+                        break
+            return valid_results
+        
+        # If we need more results, get distant ones too
+        distant_query = db.query(Image)
+        if text_filter:
+            distant_query = distant_query.filter(text_filter)
+        
+        # Exclude results already found nearby
+        if nearby_results:
+            nearby_ids = [img.id for img in nearby_results]
+            distant_query = distant_query.filter(~Image.id.in_(nearby_ids))
+        
+        # Order distant results by creation date (newest first)
+        distant_query = distant_query.order_by(Image.created_at.desc())
+        
+        # Get distant results
+        distant_results = distant_query.all()
+        
+        # Combine results: nearby first, then distant
+        all_results = nearby_results + distant_results
+        
+        # Filter out records for missing files
+        valid_results = []
+        for image in all_results:
+            file_path = os.path.join(os.getenv("UPLOAD_DIR", "./uploads"), image.filename)
+            if os.path.exists(file_path):
+                valid_results.append(image)
+                if len(valid_results) >= limit:
+                    break
+        
+        return valid_results
+    
     else:
+        # No location provided, do regular text search
+        db_query = db.query(Image)
+        
+        if text_filter:
+            db_query = db_query.filter(text_filter)
+        
         # Order by creation date (newest first)
         db_query = db_query.order_by(Image.created_at.desc())
-    
-    # Get all results first
-    all_results = db_query.all()
-    
-    # Filter out records for missing files
-    valid_results = []
-    for image in all_results:
-        file_path = os.path.join(os.getenv("UPLOAD_DIR", "./uploads"), image.filename)
-        if os.path.exists(file_path):
-            valid_results.append(image)
-            if len(valid_results) >= limit:
-                break
-    
-    return valid_results
+        
+        # Get all results first
+        all_results = db_query.all()
+        
+        # Filter out records for missing files
+        valid_results = []
+        for image in all_results:
+            file_path = os.path.join(os.getenv("UPLOAD_DIR", "./uploads"), image.filename)
+            if os.path.exists(file_path):
+                valid_results.append(image)
+                if len(valid_results) >= limit:
+                    break
+        
+        return valid_results
 
 
 def get_image_by_id(db: Session, image_id: str) -> Optional[Image]:

@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { searchLocations } from '../services/locationService';
 
-const LocationSearch = ({ onLocationSelect, placeholder = "Search for a location..." }) => {
+const LocationSearch = ({ onLocationSelect, placeholder = "Search for a location...", currentLocation = null }) => {
     const [query, setQuery] = useState('');
     const [suggestions, setSuggestions] = useState([]);
     const [loading, setLoading] = useState(false);
@@ -27,7 +27,9 @@ const LocationSearch = ({ onLocationSelect, placeholder = "Search for a location
     const performSearch = async (searchQuery) => {
         setLoading(true);
         try {
-            const results = await searchLocations(searchQuery);
+            console.log('LocationSearch: Searching with current location bias:', currentLocation);
+            const results = await searchLocations(searchQuery, currentLocation);
+            console.log('LocationSearch: Received results:', results.length);
             setSuggestions(results);
             setShowSuggestions(true);
             setSelectedIndex(-1);
@@ -183,15 +185,29 @@ const LocationSearch = ({ onLocationSelect, placeholder = "Search for a location
                                     {suggestion.address?.state && `${suggestion.address.state}, `}
                                     {suggestion.address?.country}
                                 </span>
-                                <span style={{
-                                    fontSize: '0.7rem',
-                                    color: 'var(--text-light)',
-                                    backgroundColor: 'var(--background-secondary)',
-                                    padding: '0.125rem 0.375rem',
-                                    borderRadius: '0.25rem'
-                                }}>
-                                    {suggestion.type}
-                                </span>
+                                <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                                    {suggestion.distance !== null && (
+                                        <span style={{
+                                            fontSize: '0.7rem',
+                                            color: 'var(--primary-color)',
+                                            backgroundColor: 'var(--primary-light)',
+                                            padding: '0.125rem 0.375rem',
+                                            borderRadius: '0.25rem',
+                                            fontWeight: '500'
+                                        }}>
+                                            {suggestion.distance < 1 ? `${(suggestion.distance * 1000).toFixed(0)}m` : `${suggestion.distance.toFixed(1)}km`}
+                                        </span>
+                                    )}
+                                    <span style={{
+                                        fontSize: '0.7rem',
+                                        color: 'var(--text-light)',
+                                        backgroundColor: 'var(--background-secondary)',
+                                        padding: '0.125rem 0.375rem',
+                                        borderRadius: '0.25rem'
+                                    }}>
+                                        {suggestion.type}
+                                    </span>
+                                </div>
                             </div>
                         </div>
                     ))}

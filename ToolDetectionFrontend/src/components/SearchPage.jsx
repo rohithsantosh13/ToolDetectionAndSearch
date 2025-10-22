@@ -37,7 +37,6 @@ const SearchPage = () => {
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState(null);
     const [hasSearched, setHasSearched] = useState(false);
-    const [useLocation, setUseLocation] = useState(true);
     const [showMap, setShowMap] = useState(false);
     const [searchType, setSearchType] = useState('text'); // 'text' or 'image'
     const [searchImage, setSearchImage] = useState(null);
@@ -116,7 +115,7 @@ const SearchPage = () => {
                     params.query = query.trim();
                 }
 
-                if (useLocation && location) {
+                if (location) {
                     params.lat = location.latitude;
                     params.lon = location.longitude;
                     params.radius_m = 10000; // Fixed 10km radius
@@ -128,8 +127,8 @@ const SearchPage = () => {
                 console.log('Starting image-based search with:', searchImage.name);
                 results = await searchByImage(
                     searchImage,
-                    useLocation && location ? location.latitude : null,
-                    useLocation && location ? location.longitude : null
+                    location ? location.latitude : null,
+                    location ? location.longitude : null
                 );
                 console.log('Image search results:', results);
             }
@@ -415,20 +414,11 @@ const SearchPage = () => {
                     )}
 
                     <div className="search-filters">
-                        <div className="form-group">
-                            <label className="checkbox-label">
-                                <input
-                                    type="checkbox"
-                                    checked={useLocation}
-                                    onChange={(e) => setUseLocation(e.target.checked)}
-                                />
-                                <span className="checkbox-text">Include location-based search</span>
-                            </label>
-
-                            {useLocation && (
-                                <div className="location-controls">
+                        {location && (
+                            <div className="form-group">
+                                <div className="location-info">
                                     <small className="form-help">
-                                        {location && locationName ? (
+                                        {locationName ? (
                                             <div>
                                                 <div style={{ fontWeight: '500', marginBottom: '0.25rem' }}>
                                                     📍 {locationName.name}
@@ -439,15 +429,13 @@ const SearchPage = () => {
                                                     {locationName.country}
                                                 </div>
                                             </div>
-                                        ) : location ? (
-                                            `Current location: ${location.latitude.toFixed(4)}, ${location.longitude.toFixed(4)}`
                                         ) : (
-                                            'Location not available'
+                                            `Current location: ${location.latitude.toFixed(4)}, ${location.longitude.toFixed(4)}`
                                         )}
                                     </small>
                                 </div>
-                            )}
-                        </div>
+                            </div>
+                        )}
                     </div>
 
                     <div className="search-actions">
@@ -566,8 +554,8 @@ const SearchPage = () => {
                 <div className="map-card">
                     <MapView
                         images={searchResults}
-                        userLocation={useLocation ? location : null}
-                        userLocationName={useLocation ? locationName : null}
+                        userLocation={location}
+                        userLocationName={locationName}
                         radius={10000}
                     />
                 </div>

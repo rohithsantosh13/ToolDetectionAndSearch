@@ -196,6 +196,7 @@ const HomePage = () => {
                                     <LocationSearch
                                         onLocationSelect={handleAddressSelect}
                                         placeholder="Enter address, city, or landmark..."
+                                        currentLocation={location}
                                     />
                                     <small className="form-help">
                                         Start typing to search for locations. Select from the dropdown suggestions.

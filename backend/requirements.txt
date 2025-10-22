@@ -21,6 +21,9 @@ pillow>=11.3.0
 httpx>=0.28.1
 requests>=2.32.5
 
+# OneDrive integration
+msal>=1.24.0
+
 # Environment and configuration
 python-dotenv>=1.0.0
 

@@ -113,7 +113,7 @@ const CameraCapture = ({ latitude, longitude }) => {
         }
     };
 
-    const handleRetake = () => {
+    const handleRetake = async () => {
         setSelectedFile(null);
         if (previewUrl) {
             URL.revokeObjectURL(previewUrl);
@@ -121,11 +121,12 @@ const CameraCapture = ({ latitude, longitude }) => {
         }
         setError(null);
         setUploadResult(null);
-        setShowCamera(false);
         setServerImageLoaded(false);
         setShowEditForm(false);
         setEditableTags([]);
         setCaptureTime(null);
+
+        // Stop current camera if running
         stopCamera();
 
         // Reset file inputs
@@ -133,6 +134,14 @@ const CameraCapture = ({ latitude, longitude }) => {
         const cameraInput = document.getElementById('camera-input');
         if (fileInput) fileInput.value = '';
         if (cameraInput) cameraInput.value = '';
+
+        // Automatically start camera again
+        try {
+            await startCamera();
+        } catch (err) {
+            console.error('Failed to restart camera:', err);
+            setError('Failed to restart camera. Please try again.');
+        }
     };
 
     const handleTagChange = (index, newValue) => {

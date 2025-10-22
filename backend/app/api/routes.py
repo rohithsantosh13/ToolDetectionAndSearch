@@ -16,6 +16,7 @@ from app.database.connection import get_db
 from app.database.models import Image
 from app.database.queries import search_images, get_image_by_id
 from app.services.unified_inference import get_unified_detector
+from app.services.onedrive_service import onedrive_service
 from app.api.schemas import (
     UploadResponse, SearchRequest, SearchResultsResponse, 
     SearchResponse, ErrorResponse, HealthResponse
@@ -130,32 +131,69 @@ async def save_image_with_tags(
         # Generate unique filename
         file_id = str(uuid.uuid4())
         filename = f"{file_id}.{file_extension}"
-        file_path = os.path.join(UPLOAD_DIR, filename)
         
-        # Save uploaded file
-        with open(file_path, "wb") as buffer:
-            buffer.write(contents)
+        # Validate image can be opened (using temporary file)
+        import tempfile
+        with tempfile.NamedTemporaryFile(delete=False, suffix=f".{file_extension}") as temp_file:
+            temp_file.write(contents)
+            temp_file_path = temp_file.name
         
-        # Validate image can be opened
         try:
-            with PILImage.open(file_path) as img:
+            # Validate image
+            with PILImage.open(temp_file_path) as img:
                 img.verify()
         except Exception:
-            os.remove(file_path)
+            os.unlink(temp_file_path)
             raise HTTPException(status_code=400, detail="Invalid image file")
         
-        # Create database record with user-confirmed tags
-        db_image = Image(
-            filename=filename,
-            original_filename=image.filename,
-            tags=tags_list,
-            confidences=[],  # No confidence scores for user-edited tags
-            latitude=latitude,
-            longitude=longitude,
-            location=f'POINT({longitude} {latitude})',
-            file_size=len(contents),
-            mime_type=image.content_type
-        )
+        # Always save locally first for reliable serving
+        os.makedirs(UPLOAD_DIR, exist_ok=True)
+        local_file_path = os.path.join(UPLOAD_DIR, filename)
+        
+        # Copy from temp file to local storage
+        shutil.copy2(temp_file_path, local_file_path)
+        print(f"File saved locally: {local_file_path}")
+        
+        # Try OneDrive upload as backup/cloud storage
+        onedrive_result = onedrive_service.upload_file(contents, filename)
+        
+        if onedrive_result.get("success"):
+            print(f"OneDrive upload successful: {onedrive_result.get('file_url')}")
+            # Create database record with both local and OneDrive info
+            db_image = Image(
+                filename=filename,
+                original_filename=image.filename,
+                tags=tags_list,
+                confidences=[],  # No confidence scores for user-edited tags
+                latitude=latitude,
+                longitude=longitude,
+                location=f'POINT({longitude} {latitude})',
+                file_size=len(contents),
+                mime_type=image.content_type,
+                onedrive_file_id=onedrive_result.get("file_id"),
+                onedrive_file_url=onedrive_result.get("file_url"),
+                onedrive_download_url=onedrive_result.get("download_url")
+            )
+        else:
+            print(f"OneDrive upload failed, using local storage only: {onedrive_result.get('error')}")
+            # Create database record with local storage only
+            db_image = Image(
+                filename=filename,
+                original_filename=image.filename,
+                tags=tags_list,
+                confidences=[],  # No confidence scores for user-edited tags
+                latitude=latitude,
+                longitude=longitude,
+                location=f'POINT({longitude} {latitude})',
+                file_size=len(contents),
+                mime_type=image.content_type,
+                onedrive_file_id=None,
+                onedrive_file_url=None,
+                onedrive_download_url=None
+            )
+        
+        # Clean up temporary file
+        os.unlink(temp_file_path)
         
         db.add(db_image)
         db.commit()
@@ -171,10 +209,13 @@ async def save_image_with_tags(
             longitude=db_image.longitude,
             created_at=db_image.created_at,
             file_size=db_image.file_size,
-            mime_type=db_image.mime_type
+            mime_type=db_image.mime_type,
+            onedrive_file_id=db_image.onedrive_file_id,
+            onedrive_file_url=db_image.onedrive_file_url,
+            onedrive_download_url=db_image.onedrive_download_url
         )
         
-        print(f"Image saved successfully - ID: {response.id}, Tags: {response.tags}")
+        print(f"Image saved successfully - ID: {response.id}, Tags: {response.tags}, OneDrive URL: {response.onedrive_file_url}")
         return response
         
     except HTTPException:
@@ -215,36 +256,73 @@ async def upload_image(
         # Generate unique filename
         file_id = str(uuid.uuid4())
         filename = f"{file_id}.{file_extension}"
-        file_path = os.path.join(UPLOAD_DIR, filename)
         
-        # Save uploaded file
-        with open(file_path, "wb") as buffer:
-            buffer.write(contents)
+        # Validate image can be opened (using temporary file)
+        import tempfile
+        with tempfile.NamedTemporaryFile(delete=False, suffix=f".{file_extension}") as temp_file:
+            temp_file.write(contents)
+            temp_file_path = temp_file.name
         
-        # Validate image can be opened
         try:
-            with PILImage.open(file_path) as img:
+            # Validate image
+            with PILImage.open(temp_file_path) as img:
                 img.verify()
         except Exception:
-            os.remove(file_path)
+            os.unlink(temp_file_path)
             raise HTTPException(status_code=400, detail="Invalid image file")
         
         # Run AI inference using Google Cloud AI
         unified_detector = get_unified_detector()
-        tags, confidences, metadata = unified_detector.detect_tools(file_path)
+        tags, confidences, metadata = unified_detector.detect_tools(temp_file_path)
         
-        # Create database record
-        db_image = Image(
-            filename=filename,
-            original_filename=image.filename,
-            tags=tags,
-            confidences=confidences,
-            latitude=latitude,
-            longitude=longitude,
-            location=f'POINT({longitude} {latitude})',
-            file_size=len(contents),
-            mime_type=image.content_type
-        )
+        # Always save locally first for reliable serving
+        os.makedirs(UPLOAD_DIR, exist_ok=True)
+        local_file_path = os.path.join(UPLOAD_DIR, filename)
+        
+        # Copy from temp file to local storage
+        shutil.copy2(temp_file_path, local_file_path)
+        print(f"File saved locally: {local_file_path}")
+        
+        # Try OneDrive upload as backup/cloud storage
+        onedrive_result = onedrive_service.upload_file(contents, filename)
+        
+        if onedrive_result.get("success"):
+            print(f"OneDrive upload successful: {onedrive_result.get('file_url')}")
+            # Create database record with both local and OneDrive info
+            db_image = Image(
+                filename=filename,
+                original_filename=image.filename,
+                tags=tags,
+                confidences=confidences,
+                latitude=latitude,
+                longitude=longitude,
+                location=f'POINT({longitude} {latitude})',
+                file_size=len(contents),
+                mime_type=image.content_type,
+                onedrive_file_id=onedrive_result.get("file_id"),
+                onedrive_file_url=onedrive_result.get("file_url"),
+                onedrive_download_url=onedrive_result.get("download_url")
+            )
+        else:
+            print(f"OneDrive upload failed, using local storage only: {onedrive_result.get('error')}")
+            # Create database record with local storage only
+            db_image = Image(
+                filename=filename,
+                original_filename=image.filename,
+                tags=tags,
+                confidences=confidences,
+                latitude=latitude,
+                longitude=longitude,
+                location=f'POINT({longitude} {latitude})',
+                file_size=len(contents),
+                mime_type=image.content_type,
+                onedrive_file_id=None,
+                onedrive_file_url=None,
+                onedrive_download_url=None
+            )
+        
+        # Clean up temporary file
+        os.unlink(temp_file_path)
         
         db.add(db_image)
         db.commit()
@@ -260,10 +338,13 @@ async def upload_image(
             longitude=db_image.longitude,
             created_at=db_image.created_at,
             file_size=db_image.file_size,
-            mime_type=db_image.mime_type
+            mime_type=db_image.mime_type,
+            onedrive_file_id=db_image.onedrive_file_id,
+            onedrive_file_url=db_image.onedrive_file_url,
+            onedrive_download_url=db_image.onedrive_download_url
         )
         
-        print(f"Upload successful - Image ID: {response.id}, Filename: {response.filename}")
+        print(f"Upload successful - Image ID: {response.id}, Filename: {response.filename}, OneDrive URL: {response.onedrive_file_url}")
         return response
         
     except HTTPException:
@@ -323,7 +404,10 @@ async def search_images_endpoint(
                 longitude=image.longitude,
                 created_at=image.created_at,
                 file_size=image.file_size,
-                mime_type=image.mime_type
+                mime_type=image.mime_type,
+                onedrive_file_id=image.onedrive_file_id,
+                onedrive_file_url=image.onedrive_file_url,
+                onedrive_download_url=image.onedrive_download_url
             ))
         
         location_info = None
@@ -347,7 +431,7 @@ async def search_images_endpoint(
 @router.get("/images/{image_id}")
 async def get_image_file(image_id: str, db: Session = Depends(get_db)):
     """
-    Serve an image file by ID
+    Serve an image file by ID - prioritizes local files for reliability
     """
     try:
         print(f"Serving image request for ID: {image_id}")
@@ -358,21 +442,50 @@ async def get_image_file(image_id: str, db: Session = Depends(get_db)):
             print(f"Image not found in database: {image_id}")
             raise HTTPException(status_code=404, detail="Image not found")
         
-        # Check if file exists
+        # Always try local file first for reliability
         file_path = os.path.join(UPLOAD_DIR, db_image.filename)
-        print(f"Looking for file at: {file_path}")
-        if not os.path.exists(file_path):
-            print(f"File not found on disk: {file_path}")
-            raise HTTPException(status_code=404, detail="Image file not found")
+        print(f"Checking local file: {file_path}")
         
-        print(f"Serving image file: {db_image.filename}")
+        if os.path.exists(file_path):
+            print(f"Serving local image file: {db_image.filename}")
+            return FileResponse(
+                path=file_path,
+                media_type=db_image.mime_type or "image/jpeg",
+                filename=db_image.original_filename or db_image.filename
+            )
         
-        # Return file
-        return FileResponse(
-            path=file_path,
-            media_type=db_image.mime_type or "image/jpeg",
-            filename=db_image.original_filename or db_image.filename
-        )
+        # If local file doesn't exist, try SharePoint as fallback
+        print(f"Local file not found, trying SharePoint fallback")
+        
+        # Try SharePoint download URL first
+        if db_image.onedrive_download_url:
+            print(f"Redirecting to SharePoint download URL: {db_image.onedrive_download_url}")
+            from fastapi.responses import RedirectResponse
+            return RedirectResponse(url=db_image.onedrive_download_url)
+        
+        # Try SharePoint web URL with proxy
+        elif db_image.onedrive_file_url:
+            print(f"Proxying SharePoint content from: {db_image.onedrive_file_url}")
+            try:
+                import requests
+                headers = {
+                    'Authorization': f'Bearer {onedrive_service.access_token}'
+                }
+                response = requests.get(db_image.onedrive_file_url, headers=headers)
+                if response.status_code == 200:
+                    from fastapi.responses import Response
+                    return Response(
+                        content=response.content,
+                        media_type=db_image.mime_type or "image/jpeg"
+                    )
+                else:
+                    print(f"Failed to fetch SharePoint content: {response.status_code}")
+            except Exception as e:
+                print(f"Error fetching SharePoint content: {e}")
+        
+        # If all else fails
+        print(f"No image file found for: {image_id}")
+        raise HTTPException(status_code=404, detail="Image file not found")
         
     except HTTPException:
         raise
@@ -400,7 +513,10 @@ async def get_image_info(image_id: str, db: Session = Depends(get_db)):
             longitude=db_image.longitude,
             created_at=db_image.created_at,
             file_size=db_image.file_size,
-            mime_type=db_image.mime_type
+            mime_type=db_image.mime_type,
+            onedrive_file_id=db_image.onedrive_file_id,
+            onedrive_file_url=db_image.onedrive_file_url,
+            onedrive_download_url=db_image.onedrive_download_url
         )
         
     except HTTPException:
@@ -537,7 +653,10 @@ async def search_by_image(
                     longitude=image.longitude,
                     created_at=image.created_at,
                     file_size=image.file_size,
-                    mime_type=image.mime_type
+                    mime_type=image.mime_type,
+                    onedrive_file_id=image.onedrive_file_id,
+                    onedrive_file_url=image.onedrive_file_url,
+                    onedrive_download_url=image.onedrive_download_url
                 ))
             
             location_info = None

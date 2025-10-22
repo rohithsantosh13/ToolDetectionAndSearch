@@ -41,6 +41,11 @@ class Image(Base):
     file_size = Column(Float, nullable=True)
     mime_type = Column(String(100), nullable=True)
     
+    # OneDrive integration fields
+    onedrive_file_id = Column(String(255), nullable=True)  # OneDrive file ID
+    onedrive_file_url = Column(Text, nullable=True)  # OneDrive file URL
+    onedrive_download_url = Column(Text, nullable=True)  # OneDrive download URL
+    
     def __repr__(self):
         return f"<Image(id={self.id}, filename='{self.filename}', tags={self.tags})>"
     
@@ -57,5 +62,8 @@ class Image(Base):
             "created_at": self.created_at.isoformat(),
             "updated_at": self.updated_at.isoformat(),
             "file_size": self.file_size,
-            "mime_type": self.mime_type
+            "mime_type": self.mime_type,
+            "onedrive_file_id": self.onedrive_file_id,
+            "onedrive_file_url": self.onedrive_file_url,
+            "onedrive_download_url": self.onedrive_download_url
         }

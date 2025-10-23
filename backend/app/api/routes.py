@@ -386,10 +386,16 @@ async def search_images_endpoint(
         if lon is not None and (lon < -180 or lon > 180):
             raise HTTPException(status_code=400, detail="Longitude must be between -180 and 180")
         
-        # Perform search
+        # Perform search with fallback
         print(f"Text search query: '{query}'")
-        results = search_images(db, query, lat, lon, radius_m, limit)
-        print(f"Text search found {len(results)} results")
+        try:
+            results = search_images(db, query, lat, lon, radius_m, limit)
+            print(f"Text search found {len(results)} results")
+        except Exception as e:
+            print(f"Main search failed: {e}, trying simple search")
+            from app.database.queries import simple_search_images
+            results = simple_search_images(db, query, limit)
+            print(f"Simple search found {len(results)} results")
         
         # Convert to response format
         search_results = []

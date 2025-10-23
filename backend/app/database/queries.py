@@ -32,123 +32,90 @@ def search_images(
     """
     import os
     
-    # Text search in tags
-    if query:
-        # Enhanced text search with multiple strategies
-        query_lower = query.lower().strip()
-        
-        # Create all possible search terms (original query + individual words)
-        search_terms = [query_lower]
-        query_words = [word.strip() for word in query_lower.split() if len(word.strip()) > 1]
-        search_terms.extend(query_words)
-        
-        # Create OR filters for all search terms
-        from sqlalchemy import or_
-        search_filters = []
-        
-        for term in search_terms:
-            # Direct substring match in concatenated tags
-            search_filters.append(func.array_to_string(Image.tags, ' ').ilike(f'%{term}%'))
-            
-            # Also search in individual tags
-            search_filters.append(func.array_to_string(Image.tags, ',').ilike(f'%{term}%'))
-        
-        # Use OR logic for all search strategies
-        text_filter = or_(*search_filters)
-    else:
-        text_filter = None
-    
-    # If location is provided, implement location-based prioritization
-    if lat is not None and lon is not None:
-        point = f'POINT({lon} {lat})'
-        
-        # First, get nearby results (within radius)
-        nearby_query = db.query(Image)
-        if text_filter:
-            nearby_query = nearby_query.filter(text_filter)
-        
-        # Filter by location radius
-        nearby_query = nearby_query.filter(
-            func.ST_DWithin(
-                Image.location,
-                func.ST_GeogFromText(point),
-                radius_m
-            )
-        )
-        
-        # Order nearby results by distance
-        nearby_query = nearby_query.order_by(
-            func.ST_Distance(Image.location, func.ST_GeogFromText(point))
-        )
-        
-        # Get nearby results
-        nearby_results = nearby_query.all()
-        
-        # If we have enough nearby results, return them
-        if len(nearby_results) >= limit:
-            # Filter out records for missing files
-            valid_results = []
-            for image in nearby_results:
-                file_path = os.path.join(os.getenv("UPLOAD_DIR", "./uploads"), image.filename)
-                if os.path.exists(file_path):
-                    valid_results.append(image)
-                    if len(valid_results) >= limit:
-                        break
-            return valid_results
-        
-        # If we need more results, get distant ones too
-        distant_query = db.query(Image)
-        if text_filter:
-            distant_query = distant_query.filter(text_filter)
-        
-        # Exclude results already found nearby
-        if nearby_results:
-            nearby_ids = [img.id for img in nearby_results]
-            distant_query = distant_query.filter(~Image.id.in_(nearby_ids))
-        
-        # Order distant results by creation date (newest first)
-        distant_query = distant_query.order_by(Image.created_at.desc())
-        
-        # Get distant results
-        distant_results = distant_query.all()
-        
-        # Combine results: nearby first, then distant
-        all_results = nearby_results + distant_results
-        
-        # Filter out records for missing files
-        valid_results = []
-        for image in all_results:
-            file_path = os.path.join(os.getenv("UPLOAD_DIR", "./uploads"), image.filename)
-            if os.path.exists(file_path):
-                valid_results.append(image)
-                if len(valid_results) >= limit:
-                    break
-        
-        return valid_results
-    
-    else:
-        # No location provided, do regular text search
+    try:
+        # Simple text search without complex geospatial queries
         db_query = db.query(Image)
         
-        if text_filter:
-            db_query = db_query.filter(text_filter)
+        # Text search in tags
+        if query:
+            query_lower = query.lower().strip()
+            # Simple text search in tags
+            db_query = db_query.filter(
+                func.array_to_string(Image.tags, ' ').ilike(f'%{query_lower}%')
+            )
+        
+        # Simple location filtering if coordinates provided
+        if lat is not None and lon is not None:
+            # Simple lat/lon range filtering (rough approximation)
+            lat_range = radius_m / 111000  # Rough conversion: 1 degree ≈ 111km
+            lon_range = radius_m / (111000 * 0.7)  # Approximate for longitude
+            
+            db_query = db_query.filter(
+                and_(
+                    Image.latitude.between(lat - lat_range, lat + lat_range),
+                    Image.longitude.between(lon - lon_range, lon + lon_range)
+                )
+            )
         
         # Order by creation date (newest first)
         db_query = db_query.order_by(Image.created_at.desc())
         
-        # Get all results first
-        all_results = db_query.all()
+        # Get results
+        results = db_query.limit(limit).all()
         
         # Filter out records for missing files
         valid_results = []
-        for image in all_results:
-            file_path = os.path.join(os.getenv("UPLOAD_DIR", "./uploads"), image.filename)
-            if os.path.exists(file_path):
-                valid_results.append(image)
-                if len(valid_results) >= limit:
-                    break
+        for image in results:
+            try:
+                file_path = os.path.join(os.getenv("UPLOAD_DIR", "./uploads"), image.filename)
+                if os.path.exists(file_path):
+                    valid_results.append(image)
+            except Exception as e:
+                print(f"Error checking file {image.filename}: {e}")
+                continue
         
         return valid_results
+        
+    except Exception as e:
+        print(f"Search failed: {e}")
+        return []
+
+
+def simple_search_images(db: Session, query: Optional[str] = None, limit: int = 50) -> List[Image]:
+    """
+    Simple search function without complex geospatial queries
+    Fallback for when the main search function fails
+    """
+    import os
+    
+    try:
+        db_query = db.query(Image)
+        
+        if query:
+            query_lower = query.lower().strip()
+            db_query = db_query.filter(
+                func.array_to_string(Image.tags, ' ').ilike(f'%{query_lower}%')
+            )
+        
+        db_query = db_query.order_by(Image.created_at.desc())
+        
+        results = db_query.limit(limit).all()
+        
+        valid_results = []
+        for image in results:
+            try:
+                file_path = os.path.join(os.getenv("UPLOAD_DIR", "./uploads"), image.filename)
+                if os.path.exists(file_path):
+                    valid_results.append(image)
+            except Exception as e:
+                print(f"Error checking file {image.filename}: {e}")
+                continue
+        
+        return valid_results
+        
+    except Exception as e:
+        print(f"Simple search failed: {e}")
+        return []
 
 
 def get_image_by_id(db: Session, image_id: str) -> Optional[Image]:
@@ -231,13 +198,15 @@ def search_images_by_tags(db: Session, search_tags: List[str], lat: Optional[flo
     if search_filters:
         filters.append(or_(*search_filters))
     
-    # Location-based search
+    # Location-based search (simplified)
     if lat is not None and lon is not None:
-        point = f'POINT({lon} {lat})'
-        location_filter = func.ST_DWithin(
-            Image.location,
-            func.ST_GeogFromText(point),
-            radius_m
+        # Simple lat/lon range filtering (rough approximation)
+        lat_range = radius_m / 111000  # Rough conversion: 1 degree ≈ 111km
+        lon_range = radius_m / (111000 * 0.7)  # Approximate for longitude
+        
+        location_filter = and_(
+            Image.latitude.between(lat - lat_range, lat + lat_range),
+            Image.longitude.between(lon - lon_range, lon + lon_range)
         )
         filters.append(location_filter)
     

@@ -41,9 +41,10 @@ app = FastAPI(
 # Configure CORS
 cors_origins = os.getenv("CORS_ORIGINS", "http://localhost:3000").split(",")
 # Add ngrok support - allow all origins for development
+# Configure CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=cors_origins,  # Allow all origins including ngrok
+    allow_origins=["*"],  # Allow all origins
     allow_credentials=True,
     allow_methods=["*"],  # Allow all HTTP methods
     allow_headers=["*"],  # Allow all headers

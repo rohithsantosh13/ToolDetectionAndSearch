@@ -12,15 +12,9 @@ export default defineConfig({
       '127.0.0.1',
       '.ngrok.io',
       '.ngrok-free.app',
-      '.ngrok-free.dev'
+      '.ngrok-free.dev',
+      '.onrender.com'
     ],
-    proxy: {
-      '/api': {
-        target: 'http://192.168.1.86:8000',
-        changeOrigin: true,
-        secure: false,
-      }
-    }
   },
   build: {
     outDir: 'dist',

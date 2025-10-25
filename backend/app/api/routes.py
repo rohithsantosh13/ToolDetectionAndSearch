@@ -5,22 +5,25 @@ FastAPI routes for the Tool Detection API
 import os
 import uuid
 import shutil
+import json
+import asyncio
 from typing import Optional
 from datetime import datetime
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, Query
-from fastapi.responses import FileResponse
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, Query, Request
+from fastapi.responses import FileResponse, StreamingResponse
 from sqlalchemy.orm import Session
 from PIL import Image as PILImage
 
 from app.database.connection import get_db
 from app.database.models import Image
-from app.database.queries import search_images, get_image_by_id
+from app.database.queries import search_images, get_image_by_id, get_recent_images
 from app.services.unified_inference import get_unified_detector
 from app.services.onedrive_service import onedrive_service
 from app.api.schemas import (
     UploadResponse, SearchRequest, SearchResultsResponse, 
     SearchResponse, ErrorResponse, HealthResponse
 )
+# from app.api.chat_routes import router as chat_router
 
 router = APIRouter()
 
@@ -687,3 +690,191 @@ async def search_by_image(
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Image search failed: {str(e)}")
+
+
+# Test endpoint
+@router.get("/chat/test")
+async def chat_test():
+    """Test endpoint for chat functionality"""
+    return {"message": "Chat endpoints are working!"}
+
+# Chat endpoints
+@router.post("/chat")
+async def chat_endpoint(
+    request: Request,
+    db: Session = Depends(get_db)
+):
+    """
+    Chat endpoint for non-streaming responses
+    """
+    try:
+        data = await request.json()
+        messages = data.get('messages', [])
+        
+        if not messages:
+            raise HTTPException(status_code=400, detail="No messages provided")
+        
+        # Get the last user message
+        user_message = None
+        for message in reversed(messages):
+            if message.get('role') == 'user':
+                user_message = message.get('content', '')
+                break
+        
+        if not user_message:
+            raise HTTPException(status_code=400, detail="No user message found")
+        
+        # Get real inventory data
+        # Get recent images from database
+        recent_images = get_recent_images(db, limit=100)
+        
+        # Process inventory
+        tool_counts = {}
+        tool_locations = {}
+        
+        for image in recent_images:
+            if image.tags:
+                for tag in image.tags:
+                    tool_name = tag.lower().strip()
+                    if tool_name:
+                        tool_counts[tool_name] = tool_counts.get(tool_name, 0) + 1
+                        
+                        # Store location info
+                        location_key = f"{image.latitude:.4f},{image.longitude:.4f}"
+                        if tool_name not in tool_locations:
+                            tool_locations[tool_name] = []
+                        tool_locations[tool_name].append({
+                            'location': location_key,
+                            'timestamp': image.created_at.isoformat() if image.created_at else None
+                        })
+        
+        # Generate response based on user message
+        message_lower = user_message.lower()
+        
+        if 'inventory' in message_lower or 'tools' in message_lower or 'list' in message_lower:
+            if not tool_counts:
+                response = "You don't have any tools in your inventory yet. Try uploading some tool images to get started!"
+            else:
+                response = f"You have **{len(tool_counts)}** different types of tools in your inventory:\n\n"
+                for tool_name, count in tool_counts.items():
+                    response += f"✅ **{tool_name}**: {count} available\n"
+                    if tool_name in tool_locations:
+                        locations = tool_locations[tool_name]
+                        response += f"   📍 Locations: {len(locations)} found\n"
+                        for loc in locations[:3]:  # Show first 3 locations
+                            response += f"   • {loc['location']}\n"
+                        if len(locations) > 3:
+                            response += f"   • ... and {len(locations) - 3} more locations\n"
+                    response += "\n"
+        else:
+            response = f"Hello! I received your message: '{user_message}'. I can help you with your tool inventory and task planning!"
+        
+        return {
+            "response": response,
+            "timestamp": datetime.now().isoformat(),
+            "user_tools_count": len(tool_counts)
+        }
+        
+    except Exception as e:
+        print(f"Chat endpoint error: {e}")
+        raise HTTPException(status_code=500, detail=f"Chat error: {str(e)}")
+
+
+@router.post("/chat/stream")
+async def chat_stream_endpoint(
+    request: Request,
+    db: Session = Depends(get_db)
+):
+    """
+    Streaming chat endpoint using Server-Sent Events
+    """
+    try:
+        data = await request.json()
+        messages = data.get('messages', [])
+        
+        if not messages:
+            raise HTTPException(status_code=400, detail="No messages provided")
+        
+        # Get the last user message
+        user_message = None
+        for message in reversed(messages):
+            if message.get('role') == 'user':
+                user_message = message.get('content', '')
+                break
+        
+        if not user_message:
+            raise HTTPException(status_code=400, detail="No user message found")
+        
+        async def generate_stream():
+            try:
+                # Use the real chat service for streaming
+                from app.services.chat_service import ChatService
+                chat_service = ChatService()
+                
+                # Generate streaming response
+                async for chunk in chat_service.generate_streaming_response(user_message, db):
+                    yield f"data: {json.dumps({'content': chunk, 'done': False})}\n\n"
+                    await asyncio.sleep(0.05)  # Small delay for streaming effect
+                
+                # Send completion signal
+                yield f"data: {json.dumps({'content': '', 'done': True})}\n\n"
+                
+            except Exception as e:
+                print(f"Streaming error: {e}")
+                yield f"data: {json.dumps({'content': 'I encountered an error. Please try again.', 'done': True, 'error': True})}\n\n"
+        
+        return StreamingResponse(
+            generate_stream(),
+            media_type="text/plain",
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+                "Content-Type": "text/event-stream"
+            }
+        )
+        
+    except Exception as e:
+        print(f"Chat stream endpoint error: {e}")
+        raise HTTPException(status_code=500, detail=f"Chat stream error: {str(e)}")
+
+
+@router.get("/chat/tool-categories")
+async def get_tool_categories():
+    """
+    Get available tool categories
+    """
+    return {
+        "categories": [
+            "Hand Tools",
+            "Power Tools", 
+            "Measuring Tools",
+            "Safety Equipment",
+            "Fasteners",
+            "Electrical Tools",
+            "Plumbing Tools",
+            "Woodworking Tools",
+            "Metalworking Tools",
+            "Garden Tools"
+        ]
+    }
+
+
+@router.get("/chat/task-requirements")
+async def get_task_requirements():
+    """
+    Get common task requirements
+    """
+    return {
+        "common_tasks": [
+            "Hanging a picture",
+            "Installing a shelf",
+            "Fixing a leaky faucet",
+            "Installing a light fixture",
+            "Building a deck",
+            "Installing drywall",
+            "Painting a room",
+            "Installing flooring",
+            "Electrical work",
+            "Plumbing repairs"
+        ]
+    }

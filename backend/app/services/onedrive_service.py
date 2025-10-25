@@ -5,6 +5,7 @@ OneDrive integration service for storing images in OneDrive instead of local sto
 import os
 import requests
 import json
+import time
 from typing import Optional, Dict, Any
 from dotenv import load_dotenv
 
@@ -20,11 +21,102 @@ class OneDriveService:
         self.tenant_id = os.getenv('AZURE_TENANT_ID')
         self.access_token = os.getenv('ONEDRIVE_ACCESS_TOKEN')
         self.folder_id = os.getenv('ONEDRIVE_FOLDER_ID')
-        self.base_url = "https://graph.microsoft.com/v1.0"
+        self.base_url = os.getenv("BASE_URL")
         
         # SharePoint configuration
-        self.sharepoint_site_id = "90cf8811-a62e-4db5-82e2-2aa9c2015210"
+        self.sharepoint_site_id = os.getenv("SHARE_POINT_SITE_ID")
         self.sharepoint_folder = "ToolDetectionImages"
+        
+        # Token management
+        self.token_expires_at = None
+        self._refresh_token_if_needed()
+    
+    def _refresh_token_if_needed(self):
+        """Refresh access token if it's expired or about to expire"""
+        try:
+            # If we have a static token from env, try to use it first
+            if self.access_token and not self._is_token_expired():
+                return True
+            
+            # Try to get a new token using client credentials flow
+            return self._get_new_access_token()
+            
+        except Exception as e:
+            print(f"Token refresh error: {e}")
+            return False
+    
+    def _is_token_expired(self) -> bool:
+        """Check if the current token is expired"""
+        if not self.token_expires_at:
+            return True  # Assume expired if we don't know
+        
+        # Refresh token 5 minutes before it expires
+        return time.time() >= (self.token_expires_at - 300)
+    
+    def _get_new_access_token(self) -> bool:
+        """Get a new access token using client credentials flow"""
+        try:
+            if not all([self.client_id, self.client_secret, self.tenant_id]):
+                print("❌ Missing Azure credentials for token refresh")
+                return False
+            
+            # Microsoft Graph token endpoint
+            token_url = f"https://login.microsoftonline.com/{self.tenant_id}/oauth2/v2.0/token"
+            
+            # Request body for client credentials flow
+            data = {
+                'client_id': self.client_id,
+                'client_secret': self.client_secret,
+                'scope': 'https://graph.microsoft.com/.default',
+                'grant_type': 'client_credentials'
+            }
+            
+            print("🔄 Refreshing SharePoint access token...")
+            response = requests.post(token_url, data=data)
+            
+            if response.status_code == 200:
+                token_data = response.json()
+                self.access_token = token_data.get('access_token')
+                
+                # Calculate expiration time (tokens typically last 1 hour)
+                expires_in = token_data.get('expires_in', 3600)
+                self.token_expires_at = time.time() + expires_in
+                
+                print("✅ SharePoint access token refreshed successfully")
+                return True
+            else:
+                print(f"❌ Token refresh failed: {response.status_code} - {response.text}")
+                return False
+                
+        except Exception as e:
+            print(f"❌ Error refreshing token: {e}")
+            return False
+    
+    def _make_authenticated_request(self, method: str, url: str, **kwargs) -> requests.Response:
+        """Make an authenticated request with automatic token refresh"""
+        # Ensure we have a valid token
+        if not self._refresh_token_if_needed():
+            raise Exception("Unable to get valid access token")
+        
+        # Add authorization header
+        headers = kwargs.get('headers', {})
+        headers['Authorization'] = f'Bearer {self.access_token}'
+        kwargs['headers'] = headers
+        
+        # Make the request
+        response = requests.request(method, url, **kwargs)
+        
+        # If we get 401, try refreshing token once
+        if response.status_code == 401:
+            print("🔄 Received 401, attempting token refresh...")
+            if self._get_new_access_token():
+                # Retry the request with new token
+                headers['Authorization'] = f'Bearer {self.access_token}'
+                response = requests.request(method, url, **kwargs)
+            else:
+                print("❌ Token refresh failed, request will fail")
+        
+        return response
         
     def upload_file(self, file_content: bytes, filename: str) -> Dict[str, Any]:
         """
@@ -66,18 +158,19 @@ class OneDriveService:
         Upload file to SharePoint site in ToolDetectionImages folder
         """
         try:
-            if not self.access_token:
-                return {"success": False, "error": "No access token available"}
+            # Ensure we have a valid token
+            if not self._refresh_token_if_needed():
+                return {"success": False, "error": "Unable to get valid access token"}
             
             headers = {
-                'Authorization': f'Bearer {self.access_token}',
                 'Content-Type': 'application/octet-stream'
             }
             
             # Upload to SharePoint site in ToolDetectionImages folder
             upload_url = f"{self.base_url}/sites/{self.sharepoint_site_id}/drive/root:/{self.sharepoint_folder}/{filename}:/content"
             
-            response = requests.put(upload_url, headers=headers, data=file_content)
+            # Use the authenticated request method with automatic token refresh
+            response = self._make_authenticated_request('PUT', upload_url, headers=headers, data=file_content)
             
             if response.status_code in [200, 201]:
                 file_data = response.json()
@@ -89,6 +182,7 @@ class OneDriveService:
                     if file_id:
                         download_url = f"{self.base_url}/sites/{self.sharepoint_site_id}/drive/items/{file_id}/content"
                 
+                print(f"✅ SharePoint upload successful: {filename}")
                 return {
                     "success": True,
                     "file_url": file_data.get('webUrl'),
@@ -98,13 +192,17 @@ class OneDriveService:
                     "storage_type": "sharepoint"
                 }
             else:
+                error_msg = f"SharePoint upload failed: {response.status_code} - {response.text}"
+                print(f"❌ {error_msg}")
                 return {
                     "success": False,
-                    "error": f"SharePoint upload failed: {response.status_code} - {response.text}"
+                    "error": error_msg
                 }
                 
         except Exception as e:
-            return {"success": False, "error": f"SharePoint upload error: {str(e)}"}
+            error_msg = f"SharePoint upload error: {str(e)}"
+            print(f"❌ {error_msg}")
+            return {"success": False, "error": error_msg}
 
     def _local_fallback_upload(self, file_content: bytes, filename: str) -> Dict[str, Any]:
         """
@@ -289,16 +387,9 @@ class OneDriveService:
             Public URL of the file or None if not found
         """
         try:
-            if not self.access_token:
-                return None
-
-            headers = {
-                'Authorization': f'Bearer {self.access_token}'
-            }
-
-            # Get file metadata
+            # Get file metadata using authenticated request
             url = f"{self.base_url}/me/drive/items/{file_id}"
-            response = requests.get(url, headers=headers)
+            response = self._make_authenticated_request('GET', url)
 
             if response.status_code == 200:
                 file_data = response.json()
@@ -322,16 +413,9 @@ class OneDriveService:
             True if successful, False otherwise
         """
         try:
-            if not self.access_token:
-                return False
-
-            headers = {
-                'Authorization': f'Bearer {self.access_token}'
-            }
-
-            # Delete file
+            # Delete file using authenticated request
             url = f"{self.base_url}/me/drive/items/{file_id}"
-            response = requests.delete(url, headers=headers)
+            response = self._make_authenticated_request('DELETE', url)
 
             if response.status_code == 204:
                 return True

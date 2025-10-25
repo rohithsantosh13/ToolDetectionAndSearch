@@ -11,6 +11,7 @@ from fastapi.staticfiles import StaticFiles
 from dotenv import load_dotenv
 
 from app.api.routes import router
+# from app.api.chat_routes import router as chat_router
 from app.database.connection import init_db
 
 # Load environment variables
@@ -39,16 +40,18 @@ app = FastAPI(
 
 # Configure CORS
 cors_origins = os.getenv("CORS_ORIGINS", "http://localhost:3000").split(",")
+# Add ngrok support - allow all origins for development
 app.add_middleware(
     CORSMiddleware,
-    allow_origins= ["*"] ,
+    allow_origins=cors_origins,  # Allow all origins including ngrok
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["*"],  # Allow all HTTP methods
+    allow_headers=["*"],  # Allow all headers
 )
 
 # Include API routes
 app.include_router(router, prefix="/api")
+# app.include_router(chat_router, prefix="/api")
 
 # Serve uploaded images
 app.mount("/images", StaticFiles(directory=upload_dir), name="images")
@@ -72,11 +75,11 @@ async def health_check():
 
 if __name__ == "__main__":
     import uvicorn
-    
+
     host = os.getenv("API_HOST", "0.0.0.0")
     port = int(os.getenv("API_PORT", "8000"))
     print(os.getenv("API_HOST"))
-    
+
     uvicorn.run(
         "main:app",
         host=host,

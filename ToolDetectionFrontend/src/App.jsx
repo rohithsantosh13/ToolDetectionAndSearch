@@ -2,6 +2,7 @@ import { BrowserRouter as Router, Routes, Route, Link, useLocation } from 'react
 import { useState, useEffect } from 'react';
 import HomePage from './components/HomePage';
 import SearchPage from './components/SearchPage';
+import ToolChat from './components/ToolChat';
 import './App.css';
 
 function Navigation({ isMobile }) {
@@ -22,6 +23,13 @@ function Navigation({ isMobile }) {
       >
         <span className="nav-icon">🔍</span>
         {!isMobile && 'Search'}
+      </Link>
+      <Link
+        to="/chat"
+        className={`nav-link ${location.pathname === '/chat' ? 'active' : ''}`}
+      >
+        <span className="nav-icon">🤖</span>
+        {!isMobile && 'Assistant'}
       </Link>
     </nav>
   );
@@ -65,6 +73,7 @@ function App() {
           <Routes>
             <Route path="/" element={<HomePage />} />
             <Route path="/search" element={<SearchPage />} />
+            <Route path="/chat" element={<ToolChat />} />
           </Routes>
         </main>
 

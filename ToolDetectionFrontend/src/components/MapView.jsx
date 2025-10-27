@@ -100,9 +100,10 @@ const MapView = ({ images, userLocation, userLocationName, radius }) => {
       // Create popup content
       const popupContent = `
         <div style="max-width: 200px;">
-          <img src="${getImageUrl(image.id)}" 
+          <img src="${getImageUrl(image)}" 
                style="width: 100%; height: 120px; object-fit: cover; border-radius: 4px; margin-bottom: 8px;" 
-               alt="Tool image" />
+               alt="Tool image" 
+               onerror="this.src='/placeholder-image.png'; this.alt='Image not available';" />
           <div style="font-size: 12px;">
             ${image.tags && image.tags.length > 0 ? `
               <div style="margin: 4px 0;">

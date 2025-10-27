@@ -134,6 +134,14 @@ const SearchPage = () => {
             }
 
             console.log('Setting search results:', results.results || []);
+            if (results.results && results.results.length > 0) {
+                console.log('First result OneDrive URLs:', {
+                    id: results.results[0].id,
+                    onedrive_download_url: results.results[0].onedrive_download_url,
+                    onedrive_file_url: results.results[0].onedrive_file_url,
+                    filename: results.results[0].filename
+                });
+            }
             setSearchResults(results.results || []);
         } catch (err) {
             console.error('Search error:', err);
@@ -581,13 +589,18 @@ const SearchPage = () => {
                             <div key={image.id} className="image-card">
                                 <div className="image-container">
                                     <img
-                                        src={getImageUrl(image.id)}
+                                        src={getImageUrl(image)}
                                         alt={image.original_filename || image.filename}
                                         className="image-preview"
                                         loading="lazy"
                                         onError={(e) => {
+                                            console.error('Image load error for:', image.id, e);
+                                            console.error('Failed URL:', e.target.src);
                                             e.target.src = '/placeholder-image.png';
                                             e.target.alt = 'Image not available';
+                                        }}
+                                        onLoad={() => {
+                                            console.log('Image loaded successfully:', image.id);
                                         }}
                                     />
                                 </div>

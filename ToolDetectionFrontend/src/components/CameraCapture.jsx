@@ -184,8 +184,23 @@ const CameraCapture = ({ latitude, longitude }) => {
             }
             setSelectedFile(null);
 
+            // Show success message
+            setUploadResult(prev => ({
+                ...prev,
+                saveSuccess: true,
+                saveMessage: 'Image saved successfully!'
+            }));
+
         } catch (err) {
+            console.error('Save error:', err);
             setError(err.response?.data?.detail || 'Failed to save image. Please try again.');
+
+            // Show error message
+            setUploadResult(prev => ({
+                ...prev,
+                saveSuccess: false,
+                saveMessage: 'Failed to save image. Please try again.'
+            }));
         } finally {
             setSaving(false);
         }
@@ -565,7 +580,7 @@ const CameraCapture = ({ latitude, longitude }) => {
                     <div className="image-grid" style={{ gridTemplateColumns: '1fr', maxWidth: '400px', margin: '0 auto' }}>
                         <div className="image-card">
                             <img
-                                src={previewUrl || `/api/images/${uploadResult.id}`}
+                                src={previewUrl || uploadResult.onedrive_download_url || uploadResult.onedrive_file_url}
                                 alt="Tool detection preview"
                                 className="image-preview"
                                 onLoad={() => {
@@ -713,20 +728,24 @@ const CameraCapture = ({ latitude, longitude }) => {
             {uploadResult && !showEditForm && (
                 <div className="card mt-4">
                     <div className="card-header">
-                        <h4 className="card-title">✅ Upload Successful!</h4>
-                        <p className="card-subtitle">AI analysis complete</p>
+                        <h4 className="card-title">
+                            {uploadResult.saveSuccess === false ? '❌ Save Failed' : '✅ Upload Successful!'}
+                        </h4>
+                        <p className="card-subtitle">
+                            {uploadResult.saveMessage || 'AI analysis complete'}
+                        </p>
                     </div>
 
                     <div className="image-grid" style={{ gridTemplateColumns: '1fr', maxWidth: '400px', margin: '0 auto' }}>
                         <div className="image-card">
                             <img
-                                src={serverImageLoaded ? `/api/images/${uploadResult.id}` : (previewUrl || `/api/images/${uploadResult.id}`)}
+                                src={uploadResult.onedrive_download_url || uploadResult.onedrive_file_url || previewUrl}
                                 alt="Uploaded tool"
                                 className="image-preview"
                                 onLoad={() => {
                                     console.log('Image loaded successfully');
                                     setServerImageLoaded(true);
-                                    // Once server image loads, we can clear the preview after a delay
+                                    // Once OneDrive image loads, we can clear the preview after a delay
                                     if (previewUrl) {
                                         setTimeout(() => {
                                             URL.revokeObjectURL(previewUrl);
@@ -736,7 +755,7 @@ const CameraCapture = ({ latitude, longitude }) => {
                                 }}
                                 onError={(e) => {
                                     console.error('Image load error:', e);
-                                    // If server image fails, keep using preview
+                                    // If OneDrive image fails, fall back to preview
                                     if (previewUrl && e.target.src !== previewUrl) {
                                         e.target.src = previewUrl;
                                     }
@@ -768,9 +787,26 @@ const CameraCapture = ({ latitude, longitude }) => {
                     </div>
 
                     <div className="text-center mt-4">
-                        <a href="/search" className="btn btn-primary">
-                            🔍 View All Images
-                        </a>
+                        {uploadResult.saveSuccess === false ? (
+                            <div style={{ display: 'flex', gap: '1rem', justifyContent: 'center', flexWrap: 'wrap' }}>
+                                <button
+                                    onClick={() => {
+                                        setShowEditForm(true);
+                                        setUploadResult(prev => ({ ...prev, saveSuccess: null, saveMessage: null }));
+                                    }}
+                                    className="btn btn-warning"
+                                >
+                                    🔄 Retry Save
+                                </button>
+                                <a href="/search" className="btn btn-primary">
+                                    🔍 Search Images
+                                </a>
+                            </div>
+                        ) : (
+                            <a href="/search" className="btn btn-primary">
+                                🔍 Search Images
+                            </a>
+                        )}
                     </div>
                 </div>
             )}

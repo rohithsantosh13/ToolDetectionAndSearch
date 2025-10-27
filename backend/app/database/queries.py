@@ -30,8 +30,6 @@ def search_images(
     Returns:
         List of matching Image objects, prioritized by location proximity
     """
-    import os
-    
     try:
         # Simple text search without complex geospatial queries
         db_query = db.query(Image)
@@ -60,21 +58,8 @@ def search_images(
         # Order by creation date (newest first)
         db_query = db_query.order_by(Image.created_at.desc())
         
-        # Get results
-        results = db_query.limit(limit).all()
-        
-        # Filter out records for missing files
-        valid_results = []
-        for image in results:
-            try:
-                file_path = os.path.join(os.getenv("UPLOAD_DIR", "./uploads"), image.filename)
-                if os.path.exists(file_path):
-                    valid_results.append(image)
-            except Exception as e:
-                print(f"Error checking file {image.filename}: {e}")
-                continue
-        
-        return valid_results
+        # Return results directly from database - no file existence check
+        return db_query.limit(limit).all()
         
     except Exception as e:
         print(f"Search failed: {e}")
@@ -86,8 +71,6 @@ def simple_search_images(db: Session, query: Optional[str] = None, limit: int = 
     Simple search function without complex geospatial queries
     Fallback for when the main search function fails
     """
-    import os
-    
     try:
         db_query = db.query(Image)
         
@@ -99,19 +82,8 @@ def simple_search_images(db: Session, query: Optional[str] = None, limit: int = 
         
         db_query = db_query.order_by(Image.created_at.desc())
         
-        results = db_query.limit(limit).all()
-        
-        valid_results = []
-        for image in results:
-            try:
-                file_path = os.path.join(os.getenv("UPLOAD_DIR", "./uploads"), image.filename)
-                if os.path.exists(file_path):
-                    valid_results.append(image)
-            except Exception as e:
-                print(f"Error checking file {image.filename}: {e}")
-                continue
-        
-        return valid_results
+        # Return results directly from database - no file existence check
+        return db_query.limit(limit).all()
         
     except Exception as e:
         print(f"Simple search failed: {e}")
@@ -219,17 +191,8 @@ def search_images_by_tags(db: Session, search_tags: List[str], lat: Optional[flo
     # Order by creation date (most recent first)
     db_query = db_query.order_by(Image.created_at.desc())
     
-    # Get all results first
-    all_results = db_query.all()
+    # Get results directly from database - no file existence check needed
+    results = db_query.limit(limit).all()
     
-    # Filter out records for missing files
-    valid_results = []
-    for image in all_results:
-        file_path = os.path.join(os.getenv("UPLOAD_DIR", "./uploads"), image.filename)
-        if os.path.exists(file_path):
-            valid_results.append(image)
-            if len(valid_results) >= limit:
-                break
-    
-    print(f"Database query returned {len(valid_results)} results")
-    return valid_results
+    print(f"Database query returned {len(results)} results")
+    return results

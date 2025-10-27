@@ -4,13 +4,12 @@ FastAPI routes for the Tool Detection API
 
 import os
 import uuid
-import shutil
 import json
 import asyncio
 from typing import Optional
 from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, Query, Request
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from PIL import Image as PILImage
 
@@ -28,7 +27,6 @@ from app.api.schemas import (
 router = APIRouter()
 
 # Configuration
-UPLOAD_DIR = os.getenv("UPLOAD_DIR", "./uploads")
 MAX_FILE_SIZE = int(os.getenv("MAX_FILE_SIZE", "10485760"))  # 10MB
 ALLOWED_EXTENSIONS = os.getenv("ALLOWED_EXTENSIONS", "jpg,jpeg,png").split(",")
 
@@ -60,13 +58,10 @@ async def detect_tools_only(
             raise HTTPException(status_code=400, detail="File too large")
         
         # Create temporary file for AI processing
-        temp_file_id = str(uuid.uuid4())
-        temp_filename = f"{temp_file_id}.{file_extension}"
-        temp_file_path = os.path.join(UPLOAD_DIR, temp_filename)
-        
-        # Save to temporary file
-        with open(temp_file_path, "wb") as buffer:
-            buffer.write(contents)
+        import tempfile
+        with tempfile.NamedTemporaryFile(delete=False, suffix=f".{file_extension}") as temp_file:
+            temp_file.write(contents)
+            temp_file_path = temp_file.name
         
         try:
             # Run AI inference using Google Cloud AI
@@ -77,9 +72,7 @@ async def detect_tools_only(
             return {
                 "tags": tags,
                 "confidences": confidences,
-                "metadata": metadata,
-                "temp_file_id": temp_file_id,
-                "temp_filename": temp_filename
+                "metadata": metadata
             }
             
         finally:
@@ -149,20 +142,12 @@ async def save_image_with_tags(
             os.unlink(temp_file_path)
             raise HTTPException(status_code=400, detail="Invalid image file")
         
-        # Always save locally first for reliable serving
-        os.makedirs(UPLOAD_DIR, exist_ok=True)
-        local_file_path = os.path.join(UPLOAD_DIR, filename)
-        
-        # Copy from temp file to local storage
-        shutil.copy2(temp_file_path, local_file_path)
-        print(f"File saved locally: {local_file_path}")
-        
-        # Try OneDrive upload as backup/cloud storage
+        # Upload directly to OneDrive (no local storage)
         onedrive_result = onedrive_service.upload_file(contents, filename)
         
         if onedrive_result.get("success"):
             print(f"OneDrive upload successful: {onedrive_result.get('file_url')}")
-            # Create database record with both local and OneDrive info
+            # Create database record with OneDrive info only
             db_image = Image(
                 filename=filename,
                 original_filename=image.filename,
@@ -178,22 +163,8 @@ async def save_image_with_tags(
                 onedrive_download_url=onedrive_result.get("download_url")
             )
         else:
-            print(f"OneDrive upload failed, using local storage only: {onedrive_result.get('error')}")
-            # Create database record with local storage only
-            db_image = Image(
-                filename=filename,
-                original_filename=image.filename,
-                tags=tags_list,
-                confidences=[],  # No confidence scores for user-edited tags
-                latitude=latitude,
-                longitude=longitude,
-                location=f'POINT({longitude} {latitude})',
-                file_size=len(contents),
-                mime_type=image.content_type,
-                onedrive_file_id=None,
-                onedrive_file_url=None,
-                onedrive_download_url=None
-            )
+            print(f"OneDrive upload failed: {onedrive_result.get('error')}")
+            raise HTTPException(status_code=500, detail="Failed to upload to cloud storage. Please try again.")
         
         # Clean up temporary file
         os.unlink(temp_file_path)
@@ -278,20 +249,12 @@ async def upload_image(
         unified_detector = get_unified_detector()
         tags, confidences, metadata = unified_detector.detect_tools(temp_file_path)
         
-        # Always save locally first for reliable serving
-        os.makedirs(UPLOAD_DIR, exist_ok=True)
-        local_file_path = os.path.join(UPLOAD_DIR, filename)
-        
-        # Copy from temp file to local storage
-        shutil.copy2(temp_file_path, local_file_path)
-        print(f"File saved locally: {local_file_path}")
-        
-        # Try OneDrive upload as backup/cloud storage
+        # Upload directly to OneDrive (no local storage)
         onedrive_result = onedrive_service.upload_file(contents, filename)
         
         if onedrive_result.get("success"):
             print(f"OneDrive upload successful: {onedrive_result.get('file_url')}")
-            # Create database record with both local and OneDrive info
+            # Create database record with OneDrive info only
             db_image = Image(
                 filename=filename,
                 original_filename=image.filename,
@@ -307,22 +270,8 @@ async def upload_image(
                 onedrive_download_url=onedrive_result.get("download_url")
             )
         else:
-            print(f"OneDrive upload failed, using local storage only: {onedrive_result.get('error')}")
-            # Create database record with local storage only
-            db_image = Image(
-                filename=filename,
-                original_filename=image.filename,
-                tags=tags,
-                confidences=confidences,
-                latitude=latitude,
-                longitude=longitude,
-                location=f'POINT({longitude} {latitude})',
-                file_size=len(contents),
-                mime_type=image.content_type,
-                onedrive_file_id=None,
-                onedrive_file_url=None,
-                onedrive_download_url=None
-            )
+            print(f"OneDrive upload failed: {onedrive_result.get('error')}")
+            raise HTTPException(status_code=500, detail="Failed to upload to cloud storage. Please try again.")
         
         # Clean up temporary file
         os.unlink(temp_file_path)
@@ -353,9 +302,6 @@ async def upload_image(
     except HTTPException:
         raise
     except Exception as e:
-        # Clean up file if database operation fails
-        if 'file_path' in locals() and os.path.exists(file_path):
-            os.remove(file_path)
         raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
 
 
@@ -451,30 +397,18 @@ async def get_image_file(image_id: str, db: Session = Depends(get_db)):
             print(f"Image not found in database: {image_id}")
             raise HTTPException(status_code=404, detail="Image not found")
         
-        # Always try local file first for reliability
-        file_path = os.path.join(UPLOAD_DIR, db_image.filename)
-        print(f"Checking local file: {file_path}")
+        # Serve image from OneDrive only (no local storage)
+        print(f"Serving image from OneDrive: {db_image.filename}")
         
-        if os.path.exists(file_path):
-            print(f"Serving local image file: {db_image.filename}")
-            return FileResponse(
-                path=file_path,
-                media_type=db_image.mime_type or "image/jpeg",
-                filename=db_image.original_filename or db_image.filename
-            )
-        
-        # If local file doesn't exist, try SharePoint as fallback
-        print(f"Local file not found, trying SharePoint fallback")
-        
-        # Try SharePoint download URL first
+        # Try OneDrive download URL first (most reliable)
         if db_image.onedrive_download_url:
-            print(f"Redirecting to SharePoint download URL: {db_image.onedrive_download_url}")
+            print(f"Redirecting to OneDrive download URL: {db_image.onedrive_download_url}")
             from fastapi.responses import RedirectResponse
             return RedirectResponse(url=db_image.onedrive_download_url)
         
-        # Try SharePoint web URL with proxy
+        # Try OneDrive file URL with proxy as fallback
         elif db_image.onedrive_file_url:
-            print(f"Proxying SharePoint content from: {db_image.onedrive_file_url}")
+            print(f"Proxying OneDrive content from: {db_image.onedrive_file_url}")
             try:
                 import requests
                 headers = {
@@ -488,13 +422,13 @@ async def get_image_file(image_id: str, db: Session = Depends(get_db)):
                         media_type=db_image.mime_type or "image/jpeg"
                     )
                 else:
-                    print(f"Failed to fetch SharePoint content: {response.status_code}")
+                    print(f"Failed to fetch OneDrive content: {response.status_code}")
             except Exception as e:
-                print(f"Error fetching SharePoint content: {e}")
+                print(f"Error fetching OneDrive content: {e}")
         
-        # If all else fails
-        print(f"No image file found for: {image_id}")
-        raise HTTPException(status_code=404, detail="Image file not found")
+        # If no OneDrive URLs available
+        print(f"No OneDrive URLs available for image: {image_id}")
+        raise HTTPException(status_code=404, detail="Image not available in cloud storage")
         
     except HTTPException:
         raise

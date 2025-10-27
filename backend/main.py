@@ -7,7 +7,6 @@ import os
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
 from dotenv import load_dotenv
 
 from app.api.routes import router
@@ -17,9 +16,7 @@ from app.database.connection import init_db
 # Load environment variables
 load_dotenv()
 
-# Create uploads directory if it doesn't exist
-upload_dir = os.getenv("UPLOAD_DIR", "./uploads")
-os.makedirs(upload_dir, exist_ok=True)
+# No local storage needed - using OneDrive only
 
 
 @asynccontextmanager
@@ -54,8 +51,7 @@ app.add_middleware(
 app.include_router(router, prefix="/api")
 # app.include_router(chat_router, prefix="/api")
 
-# Serve uploaded images
-app.mount("/images", StaticFiles(directory=upload_dir), name="images")
+# Images are served from OneDrive URLs - no local static file serving needed
 
 
 @app.get("/")

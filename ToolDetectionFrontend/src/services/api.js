@@ -83,41 +83,20 @@ export const searchImages = async (params) => {
 export const getImageUrl = (imageData) => {
     console.log('getImageUrl called with:', imageData);
 
-    // If imageData is a string (imageId), use the old method for backward compatibility
+    // If imageData is a string (imageId), use the backend proxy
     if (typeof imageData === 'string') {
         const baseURL = api.defaults.baseURL.replace('/api', '');
         const url = `${baseURL}/api/images/${imageData}`;
-        console.log('Using legacy URL for string ID:', url);
+        console.log('Using backend proxy URL for string ID:', url);
         return url;
     }
 
-    // If imageData is an object with OneDrive URLs, use them directly
+    // If imageData is an object, always use backend proxy for reliability
     if (imageData && typeof imageData === 'object') {
-        // Check if OneDrive URLs exist and are not empty
-        const onedriveDownloadUrl = imageData.onedrive_download_url;
-        const onedriveFileUrl = imageData.onedrive_file_url;
-
-        console.log('OneDrive URLs check:', {
-            onedrive_download_url: onedriveDownloadUrl,
-            onedrive_file_url: onedriveFileUrl,
-            id: imageData.id
-        });
-
-        if (onedriveDownloadUrl && onedriveDownloadUrl.trim() !== '') {
-            console.log('Using OneDrive download URL:', onedriveDownloadUrl);
-            return onedriveDownloadUrl;
-        }
-
-        if (onedriveFileUrl && onedriveFileUrl.trim() !== '') {
-            console.log('Using OneDrive file URL:', onedriveFileUrl);
-            return onedriveFileUrl;
-        }
-
-        // If no OneDrive URLs, fall back to legacy API
         const baseURL = api.defaults.baseURL.replace('/api', '');
-        const legacyUrl = `${baseURL}/api/images/${imageData.id}`;
-        console.log('Falling back to legacy API URL:', legacyUrl);
-        return legacyUrl;
+        const proxyUrl = `${baseURL}/api/images/${imageData.id}`;
+        console.log('Using backend proxy URL for object data:', proxyUrl);
+        return proxyUrl;
     }
 
     console.log('No valid imageData, returning null');

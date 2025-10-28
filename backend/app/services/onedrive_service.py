@@ -402,6 +402,40 @@ class OneDriveService:
             print(f"Error getting file URL: {str(e)}")
             return None
 
+    def get_fresh_download_url(self, file_id: str) -> Optional[str]:
+        """
+        Get a fresh download URL for a file by its OneDrive ID
+        This method fetches a new download URL to avoid token expiration
+
+        Args:
+            file_id: OneDrive file ID
+
+        Returns:
+            Fresh download URL of the file or None if not found
+        """
+        try:
+            # Get file metadata using authenticated request
+            url = f"{self.base_url}/sites/{self.sharepoint_site_id}/drive/items/{file_id}"
+            response = self._make_authenticated_request('GET', url)
+
+            if response.status_code == 200:
+                file_data = response.json()
+                # Get the download URL for direct access
+                download_url = file_data.get('@microsoft.graph.downloadUrl')
+                if download_url:
+                    print(f"✅ Fresh download URL obtained for file: {file_id}")
+                    return download_url
+                else:
+                    print(f"⚠️ No download URL in response for file: {file_id}")
+                    return None
+            else:
+                print(f"❌ Failed to get fresh download URL: {response.status_code} - {response.text}")
+                return None
+
+        except Exception as e:
+            print(f"❌ Error getting fresh download URL: {str(e)}")
+            return None
+
     def delete_file(self, file_id: str) -> bool:
         """
         Delete a file from OneDrive

@@ -386,7 +386,7 @@ async def search_images_endpoint(
 @router.get("/images/{image_id}")
 async def get_image_file(image_id: str, db: Session = Depends(get_db)):
     """
-    Serve an image file by ID - prioritizes local files for reliability
+    Serve an image file by ID - always fetch fresh URLs to avoid token expiration
     """
     try:
         print(f"Serving image request for ID: {image_id}")
@@ -397,24 +397,36 @@ async def get_image_file(image_id: str, db: Session = Depends(get_db)):
             print(f"Image not found in database: {image_id}")
             raise HTTPException(status_code=404, detail="Image not found")
         
-        # Serve image from OneDrive only (no local storage)
-        print(f"Serving image from OneDrive: {db_image.filename}")
+        # Always fetch fresh URL from OneDrive to avoid token expiration
+        print(f"Fetching fresh OneDrive URL for: {db_image.filename}")
         
-        # Try OneDrive download URL first (most reliable)
-        if db_image.onedrive_download_url:
-            print(f"Redirecting to OneDrive download URL: {db_image.onedrive_download_url}")
-            from fastapi.responses import RedirectResponse
-            return RedirectResponse(url=db_image.onedrive_download_url)
+        # Get fresh download URL from OneDrive using file ID
+        if db_image.onedrive_file_id:
+            try:
+                fresh_download_url = onedrive_service.get_fresh_download_url(db_image.onedrive_file_id)
+                if fresh_download_url:
+                    print(f"Redirecting to fresh OneDrive download URL")
+                    from fastapi.responses import RedirectResponse
+                    return RedirectResponse(url=fresh_download_url)
+            except Exception as e:
+                print(f"Failed to get fresh download URL: {e}")
         
-        # Try OneDrive file URL with proxy as fallback
-        elif db_image.onedrive_file_url:
-            print(f"Proxying OneDrive content from: {db_image.onedrive_file_url}")
+        # Fallback: Try to proxy the content directly
+        if db_image.onedrive_file_id:
+            print(f"Proxying OneDrive content using file ID: {db_image.onedrive_file_id}")
             try:
                 import requests
+                # Get fresh access token
+                if not onedrive_service._refresh_token_if_needed():
+                    raise Exception("Unable to refresh access token")
+                
+                # Construct the content URL using file ID
+                content_url = f"{onedrive_service.base_url}/sites/{onedrive_service.sharepoint_site_id}/drive/items/{db_image.onedrive_file_id}/content"
+                
                 headers = {
                     'Authorization': f'Bearer {onedrive_service.access_token}'
                 }
-                response = requests.get(db_image.onedrive_file_url, headers=headers)
+                response = requests.get(content_url, headers=headers)
                 if response.status_code == 200:
                     from fastapi.responses import Response
                     return Response(
@@ -426,8 +438,8 @@ async def get_image_file(image_id: str, db: Session = Depends(get_db)):
             except Exception as e:
                 print(f"Error fetching OneDrive content: {e}")
         
-        # If no OneDrive URLs available
-        print(f"No OneDrive URLs available for image: {image_id}")
+        # If no OneDrive file ID available
+        print(f"No OneDrive file ID available for image: {image_id}")
         raise HTTPException(status_code=404, detail="Image not available in cloud storage")
         
     except HTTPException:
